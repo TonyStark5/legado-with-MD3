@@ -16,6 +16,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.legado.app.data.entities.rule.ExploreKind
+import io.legado.app.ui.config.themeConfig.ThemeConfig
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.text.AppText
@@ -44,7 +45,7 @@ fun ExploreKindItem(
                 cornerRadius = cornerRadius,
                 containerColor = backgroundColor,
                 contentColor = LegadoTheme.colorScheme.onSurface,
-                modifier = modifier
+                modifier = modifier,
             ) {
                 KindText(
                     text = displayText,
@@ -58,7 +59,6 @@ fun ExploreKindItem(
                 containerColor = backgroundColor,
                 contentColor = LegadoTheme.colorScheme.primary,
                 modifier = modifier,
-                border = CardDefaults.outlinedCardBorder()
             ) {
                 KindText(
                     text = displayText,

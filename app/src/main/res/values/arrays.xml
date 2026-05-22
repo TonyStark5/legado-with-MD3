@@ -12,6 +12,20 @@
 		<item>File</item>
 	</string-array>
 
+	<string-array name="layout_type">
+		<item>List</item>
+		<item>Single Column</item>
+		<item>Two Columns</item>
+		<item>Waterfall</item>
+		<item>Three Columns</item>
+	</string-array>
+
+	<string-array name="rss_type">
+		<item>Web Page</item>
+		<item>Image</item>
+		<item>Video</item>
+	</string-array>
+
 	<string-array name="group_style">
 		<item>Tab</item>
 		<item>Hide Tab</item>
@@ -308,6 +322,12 @@
 		<item>Default</item>
 		<item>High</item>
 		<item>Maximum</item>
+	</string-array>
+
+	<string-array name="backup_sync_mode">
+		<item>@string/backup_to_local_and_network</item>
+		<item>@string/backup_to_local</item>
+		<item>@string/backup_to_network</item>
 	</string-array>
 
 	<string name="all_version">All Version</string>

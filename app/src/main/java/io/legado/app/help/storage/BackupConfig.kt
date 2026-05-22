@@ -84,15 +84,9 @@ object BackupConfig {
 
     private val themePrefKeys = arrayOf(
         PreferKey.cPrimary,
-        PreferKey.cAccent,
-        PreferKey.cBackground,
-        PreferKey.cBBackground,
+        PreferKey.cNPrimary,
         PreferKey.bgImage,
         PreferKey.bgImageBlurring,
-        PreferKey.cNPrimary,
-        PreferKey.cNAccent,
-        PreferKey.cNBackground,
-        PreferKey.cNBBackground,
         PreferKey.bgImageN,
         PreferKey.bgImageNBlurring
     )

@@ -2,15 +2,18 @@ package io.legado.app.ui.config
 
 import android.content.SharedPreferences
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import io.legado.app.utils.defaultSharedPreferences
 import io.legado.app.utils.getPrefBoolean
+import io.legado.app.utils.getPrefFloat
 import io.legado.app.utils.getPrefInt
 import io.legado.app.utils.getPrefLong
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.putPrefBoolean
+import io.legado.app.utils.putPrefFloat
 import io.legado.app.utils.putPrefInt
 import io.legado.app.utils.putPrefLong
 import io.legado.app.utils.putPrefString
@@ -19,7 +22,12 @@ import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
 interface PrefDelegate<T> : ReadWriteProperty<Any?, T> {
+    val state: State<T>
     fun dispose()
+}
+
+class PrefStateDelegate<T>(private val delegate: PrefDelegate<T>) : ReadWriteProperty<Any?, T> by delegate {
+    val state: State<T> get() = delegate.state
 }
 
 fun <T> prefDelegate(
@@ -30,6 +38,7 @@ fun <T> prefDelegate(
 ): PrefDelegate<T> {
     return object : PrefDelegate<T>, SharedPreferences.OnSharedPreferenceChangeListener, DefaultLifecycleObserver {
         private var _value: MutableState<T> = mutableStateOf(readInitialValue())
+        override val state: State<T> get() = _value
 
         init {
             if (lifecycleOwner != null) {
@@ -63,6 +72,7 @@ fun <T> prefDelegate(
                 defaultValue is Int -> appCtx.getPrefInt(key, defaultValue) as T
                 defaultValue is Boolean -> appCtx.getPrefBoolean(key, defaultValue) as T
                 defaultValue is Long -> appCtx.getPrefLong(key, defaultValue) as T
+                defaultValue is Float -> appCtx.getPrefFloat(key, defaultValue) as T
                 else -> defaultValue
             }
         }
@@ -78,6 +88,7 @@ fun <T> prefDelegate(
                     is Int -> appCtx.putPrefInt(key, value)
                     is Boolean -> appCtx.putPrefBoolean(key, value)
                     is Long -> appCtx.putPrefLong(key, value)
+                    is Float -> appCtx.putPrefFloat(key, value)
                 }
                 _value.value = value
                 onValueChange?.invoke(value)
@@ -94,4 +105,14 @@ fun <T> prefDelegate(
             }
         }
     }
+}
+
+fun <T> prefStateDelegate(
+    key: String,
+    defaultValue: T,
+    lifecycleOwner: LifecycleOwner? = null,
+    onValueChange: ((T) -> Unit)? = null
+): PrefStateDelegate<T> {
+    val delegate = prefDelegate(key, defaultValue, lifecycleOwner, onValueChange)
+    return PrefStateDelegate(delegate)
 }

@@ -33,8 +33,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridS
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,14 +58,15 @@ import io.legado.app.data.entities.RssArticle
 import io.legado.app.data.entities.RssSource
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
+import io.legado.app.ui.widget.components.AppPullToRefresh
 import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.card.GlassCard
-import io.legado.app.ui.widget.components.cover.buildCoverImageRequest
+import io.legado.app.ui.widget.components.image.cover.buildCoverImageRequest
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import org.koin.compose.koinInject
 
 private enum class RssArticleLayout {
@@ -92,6 +91,7 @@ fun RssArticlesPage(
     rssUrl: String?,
     rssSource: RssSource?,
     viewModel: RssArticlesViewModel,
+    searchKey: String? = null,
     onRead: (RssArticle) -> Unit,
     paddingValues: PaddingValues = PaddingValues(0.dp),
     modifier: Modifier = Modifier
@@ -99,9 +99,10 @@ fun RssArticlesPage(
     val context = LocalContext.current
     val layout = remember(articleStyle) { articleStyle.toRssArticleLayout() }
     val loadState by viewModel.loadState.collectAsStateWithLifecycle()
+    val isPreload = remember(rssSource) { rssSource?.preload == true }
 
-    LaunchedEffect(sortName, sortUrl) {
-        viewModel.init(sortName, sortUrl)
+    LaunchedEffect(sortName, sortUrl, searchKey) {
+        viewModel.init(sortName, sortUrl, searchKey)
     }
 
     val articleFlow = remember(rssUrl, sortName) {
@@ -124,17 +125,16 @@ fun RssArticlesPage(
         loadState.errorMessage?.takeIf { it.isNotBlank() }?.let(context::toastOnUi)
     }
 
-    val refreshState = rememberPullToRefreshState()
     val contentPadding = adaptiveContentPadding(
         top = paddingValues.calculateTopPadding(),
         bottom = 120.dp
     )
 
-    PullToRefreshBox(
+    AppPullToRefresh(
         isRefreshing = loadState.isRefreshing,
         onRefresh = { rssSource?.let(viewModel::loadArticles) },
-        state = refreshState,
-        modifier = modifier.fillMaxSize()
+        modifier = modifier.fillMaxSize(),
+        topPadding = paddingValues.calculateTopPadding()
     ) {
         when (layout) {
             RssArticleLayout.List, RssArticleLayout.LargeCard -> {
@@ -142,6 +142,7 @@ fun RssArticlesPage(
                 LoadMoreDetector(
                     state = listState,
                     enabled = loadState.canLoadMore,
+                    preloadThreshold = if (isPreload) 5 else 3,
                     onLoadMore = { rssSource?.let(viewModel::loadMore) }
                 )
                 LazyColumn(
@@ -174,6 +175,7 @@ fun RssArticlesPage(
                 GridLoadMoreDetector(
                     state = gridState,
                     enabled = loadState.canLoadMore,
+                    preloadThreshold = if (isPreload) 5 else 3,
                     onLoadMore = { rssSource?.let(viewModel::loadMore) }
                 )
                 LazyVerticalGrid(
@@ -208,6 +210,7 @@ fun RssArticlesPage(
                 StaggeredLoadMoreDetector(
                     state = staggeredState,
                     enabled = loadState.canLoadMore,
+                    preloadThreshold = if (isPreload) 5 else 3,
                     onLoadMore = { rssSource?.let(viewModel::loadMore) }
                 )
                 LazyVerticalStaggeredGrid(
@@ -244,13 +247,14 @@ fun RssArticlesPage(
 private fun LoadMoreDetector(
     state: LazyListState,
     enabled: Boolean,
+    preloadThreshold: Int = 3,
     onLoadMore: () -> Unit
 ) {
     LaunchedEffect(state, enabled) {
         snapshotFlow {
             val info = state.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            enabled && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            enabled && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - preloadThreshold
         }.collect { shouldLoad ->
             if (shouldLoad) onLoadMore()
         }
@@ -261,13 +265,14 @@ private fun LoadMoreDetector(
 private fun GridLoadMoreDetector(
     state: LazyGridState,
     enabled: Boolean,
+    preloadThreshold: Int = 3,
     onLoadMore: () -> Unit
 ) {
     LaunchedEffect(state, enabled) {
         snapshotFlow {
             val info = state.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            enabled && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            enabled && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - preloadThreshold
         }.collect { shouldLoad ->
             if (shouldLoad) onLoadMore()
         }
@@ -278,13 +283,14 @@ private fun GridLoadMoreDetector(
 private fun StaggeredLoadMoreDetector(
     state: LazyStaggeredGridState,
     enabled: Boolean,
+    preloadThreshold: Int = 3,
     onLoadMore: () -> Unit
 ) {
     LaunchedEffect(state, enabled) {
         snapshotFlow {
             val info = state.layoutInfo
             val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: -1
-            enabled && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            enabled && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - preloadThreshold
         }.collect { shouldLoad ->
             if (shouldLoad) onLoadMore()
         }
@@ -297,7 +303,7 @@ private fun LoadMoreFooter(
     onRetry: () -> Unit
 ) {
     val text = when {
-        state.isLoadingMore -> "加载中..."
+        state.isRefreshing || state.isLoadingMore -> "加载中..."
         !state.hasMore -> "没有更多了"
         state.errorMessage != null -> "加载失败，点击重试"
         else -> "上拉加载更多"
@@ -315,7 +321,7 @@ private fun LoadMoreFooter(
     ) {
         EmptyMessage(
             message = text,
-            isLoading = state.isLoadingMore,
+            isLoading = state.isRefreshing || state.isLoadingMore,
             modifier = contentModifier
         )
     }
@@ -385,7 +391,9 @@ private fun RssArticleItem(
             }
 
             RssArticleLayout.LargeCard -> {
-                Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                Column(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)) {
                     RssArticleImage(
                         article = article,
                         showPlaceholder = false,
@@ -414,7 +422,9 @@ private fun RssArticleItem(
             }
 
             RssArticleLayout.GridCard -> {
-                Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                Column(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)) {
                     RssArticleImage(
                         article = article,
                         showPlaceholder = true,
@@ -443,7 +453,9 @@ private fun RssArticleItem(
             }
 
             RssArticleLayout.Waterfall -> {
-                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                Column(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)) {
                     RssArticleImage(
                         article = article,
                         showPlaceholder = false,

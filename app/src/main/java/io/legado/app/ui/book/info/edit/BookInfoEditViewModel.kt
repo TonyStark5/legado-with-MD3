@@ -25,14 +25,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
 
+enum class BookInfoEditType {
+    TEXT,
+    AUDIO,
+    IMAGE
+}
+
 data class BookInfoEditUiState(
     val name: String = "",
     val author: String = "",
     val coverUrl: String? = null,
     val intro: String? = null,
     val remark: String? = null,
-    val selectedType: String = "文本",
-    val bookTypes: List<String> = listOf("文本", "音频", "图片"),
+    val kindList: List<String> = emptyList(),
+    val originalKindList: List<String> = emptyList(),
+    val selectedType: BookInfoEditType = BookInfoEditType.TEXT,
     val fixedType: Boolean = false,
     val book: Book? = null,
 )
@@ -46,23 +53,31 @@ class BookInfoEditViewModel(application: Application) : BaseViewModel(applicatio
         execute {
             book = appDb.bookDao.getBook(bookUrl)
             book?.let {
-                val selectedTypeIndex = when {
-                    it.isImage -> 2
-                    it.isAudio -> 1
-                    else -> 0
+                val selectedType = when {
+                    it.isImage -> BookInfoEditType.IMAGE
+                    it.isAudio -> BookInfoEditType.AUDIO
+                    else -> BookInfoEditType.TEXT
                 }
+                val kinds =
+                    it.kind?.split(",", "\n")?.filter { kind -> kind.isNotBlank() }.orEmpty()
                 _uiState.value = BookInfoEditUiState(
                     name = it.name,
                     author = it.author,
                     coverUrl = it.getDisplayCover(),
                     intro = it.getDisplayIntro(),
                     remark = it.remark,
-                    selectedType = _uiState.value.bookTypes[selectedTypeIndex],
+                    kindList = kinds,
+                    originalKindList = kinds,
+                    selectedType = selectedType,
                     fixedType = it.config.fixedType,
                     book = it
                 )
             }
         }
+    }
+
+    fun resetKinds() {
+        _uiState.value = _uiState.value.copy(kindList = _uiState.value.originalKindList.toList())
     }
 
     fun onNameChange(name: String) {
@@ -85,7 +100,11 @@ class BookInfoEditViewModel(application: Application) : BaseViewModel(applicatio
         _uiState.value = _uiState.value.copy(remark = remark)
     }
 
-    fun onBookTypeChange(bookType: String) {
+    fun onKindListChange(kindList: List<String>) {
+        _uiState.value = _uiState.value.copy(kindList = kindList)
+    }
+
+    fun onBookTypeChange(bookType: BookInfoEditType) {
         _uiState.value = _uiState.value.copy(selectedType = bookType)
     }
 
@@ -107,8 +126,8 @@ class BookInfoEditViewModel(application: Application) : BaseViewModel(applicatio
                 book.remark = currentState.remark
                 val local = if (book.isLocal) BookType.local else 0
                 val bookType = when (currentState.selectedType) {
-                    currentState.bookTypes[2] -> BookType.image or local
-                    currentState.bookTypes[1] -> BookType.audio or local
+                    BookInfoEditType.IMAGE -> BookType.image or local
+                    BookInfoEditType.AUDIO -> BookType.audio or local
                     else -> BookType.text or local
                 }
                 book.removeType(BookType.local, BookType.image, BookType.audio, BookType.text)
@@ -116,6 +135,7 @@ class BookInfoEditViewModel(application: Application) : BaseViewModel(applicatio
                 book.config.fixedType = currentState.fixedType
                 book.customCoverUrl = if (currentState.coverUrl == book.coverUrl) null else currentState.coverUrl
                 book.customIntro = if (currentState.intro == book.intro) null else currentState.intro
+                book.kind = currentState.kindList.joinToString(",")
                 BookHelp.updateCacheFolder(oldBook, book)
 
                 if (ReadBook.book?.bookUrl == book.bookUrl) {

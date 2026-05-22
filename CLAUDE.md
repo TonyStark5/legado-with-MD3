@@ -40,6 +40,9 @@ Transform tasks into verifiable goals:
 ## Build / Test / Run
 
 ```bash
+# Quick compile check (Kotlin only, no dex/package — fastest for verifying code compiles)
+.\gradlew.bat :app:compileAppDebugKotlin
+
 # Assemble all variants
 ./gradlew assembleAppRelease
 
@@ -83,7 +86,7 @@ Additional top-level packages:
 - **`help/`** — Infrastructure "glue": HTTP (OkHttp + Cronet), book content processing, backup/WebDAV, JS engine, config
 - **`model/`** — Runtime state coordinators (not entities): `ReadBook`, `AudioPlay`, `CacheBook`, `BookCover`, etc.
 - **`service/`** — Android foreground/background services (audio playback, TTS, download, web server)
-- **`web/`** — Embedded HTTP server (NanoHTTPD) for remote bookshelf/source editing
+- **`web/`** — Embedded HTTP server (Ktor) for remote bookshelf/source editing
 - **`lib/`** — Third-party library wrappers (MOBI parser, WebDAV client, legacy View theme system, cronet)
 - **`base/`** — Abstract Activity/Fragment/ViewModel base classes
 - **`utils/`** — Extension functions and utility classes (~70 files)
