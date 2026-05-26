@@ -35,7 +35,8 @@ object MainNavigator {
             MainRouteSettingsBackup,
             MainRouteSettingsCustomTheme,
             MainRouteSettingsThemeManage,
-            MainRouteSettingsDownloadCache -> {
+            MainRouteSettingsDownloadCache,
+            MainRouteSettingsTranslation -> {
                 backStack.clear()
                 backStack.add(MainRouteHome)
                 backStack.add(MainRouteSettings)
@@ -233,6 +234,7 @@ object MainNavigator {
             MainRouteConst.ROUTE_SETTINGS_BACKUP -> MainRouteSettingsBackup
             MainRouteConst.ROUTE_SETTINGS_CUSTOM_THEME -> MainRouteSettingsCustomTheme
             MainRouteConst.ROUTE_SETTINGS_DOWNLOAD_CACHE -> MainRouteSettingsDownloadCache
+            MainRouteConst.ROUTE_SETTINGS_TRANSLATION -> MainRouteSettingsTranslation
             MainRouteConst.ROUTE_IMPORT_LOCAL -> MainRouteImportLocal
             MainRouteConst.ROUTE_IMPORT_REMOTE -> MainRouteImportRemote
             MainRouteConst.ROUTE_CACHE -> MainRouteCache(
@@ -254,7 +256,9 @@ object MainNavigator {
                     MainRouteBookInfo(
                         name = intent.getStringExtra(MainIntent.EXTRA_BOOK_NAME),
                         author = intent.getStringExtra(MainIntent.EXTRA_BOOK_AUTHOR),
-                        bookUrl = bookUrl
+                        bookUrl = bookUrl,
+                        origin = intent.getStringExtra(MainIntent.EXTRA_BOOK_ORIGIN),
+                        coverPath = intent.getStringExtra(MainIntent.EXTRA_BOOK_COVER)
                     )
                 } ?: MainRouteHome
 

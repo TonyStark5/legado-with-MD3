@@ -6,6 +6,7 @@ import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.decode.SvgDecoder
 import io.legado.app.data.AppDatabase
+import io.legado.app.data.local.preferences.LocalPreferencesRepository
 import io.legado.app.data.repository.AppStartupRepository
 import io.legado.app.data.repository.BookCacheCleanupRepository
 import io.legado.app.data.repository.BookDomainRepositoryImpl
@@ -17,10 +18,12 @@ import io.legado.app.data.repository.BookshelfRepository
 import io.legado.app.data.repository.CacheBookDownloadRepository
 import io.legado.app.data.repository.DatabaseMaintenanceRepository
 import io.legado.app.data.repository.DictRuleRepository
+import io.legado.app.data.repository.DictionaryRepositoryImpl
 import io.legado.app.data.repository.DirectLinkUploadRepository
 import io.legado.app.data.repository.ExploreRepository
 import io.legado.app.data.repository.ExploreRepositoryImpl
 import io.legado.app.data.repository.HomepageModulesRepository
+import io.legado.app.data.repository.LlmTranslateRepositoryImpl
 import io.legado.app.data.repository.LocalBookRepository
 import io.legado.app.data.repository.ReadRecordRepository
 import io.legado.app.data.repository.RemoteBookRepository
@@ -29,6 +32,7 @@ import io.legado.app.data.repository.SearchContentRepository
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.data.repository.SearchRepositoryImpl
 import io.legado.app.data.repository.SettingsRepository
+import io.legado.app.data.repository.TranslationCacheRepositoryImpl
 import io.legado.app.data.repository.UploadRepository
 import io.legado.app.data.repository.WebDavBackupRepository
 import io.legado.app.data.repository.WebDavReadingProgressRepository
@@ -38,12 +42,17 @@ import io.legado.app.domain.gateway.BookCacheDownloadGateway
 import io.legado.app.domain.gateway.BookSearchGateway
 import io.legado.app.domain.gateway.BookSourceCallbackGateway
 import io.legado.app.domain.gateway.DatabaseMaintenanceGateway
+import io.legado.app.domain.gateway.DictionaryGateway
+import io.legado.app.domain.gateway.ExploreBooksGateway
 import io.legado.app.domain.gateway.HomepageModulesGateway
+import io.legado.app.domain.gateway.LlmGateway
 import io.legado.app.domain.gateway.LocalBookGateway
 import io.legado.app.domain.gateway.ReadingProgressGateway
+import io.legado.app.domain.gateway.TranslationCacheGateway
 import io.legado.app.domain.gateway.WebDavBackupGateway
 import io.legado.app.domain.repository.BookDomainRepository
 import io.legado.app.domain.usecase.AddBookUseCase
+import io.legado.app.domain.usecase.AddToBookshelfUseCase
 import io.legado.app.domain.usecase.AppStartupMaintenanceUseCase
 import io.legado.app.domain.usecase.BatchCacheDownloadUseCase
 import io.legado.app.domain.usecase.CacheBookChaptersUseCase
@@ -61,6 +70,7 @@ import io.legado.app.domain.usecase.ResolveBookShelfStateUseCase
 import io.legado.app.domain.usecase.SaveSearchBooksUseCase
 import io.legado.app.domain.usecase.SearchBooksUseCase
 import io.legado.app.domain.usecase.ShrinkDatabaseUseCase
+import io.legado.app.domain.usecase.TranslateChapterUseCase
 import io.legado.app.domain.usecase.UpdateBooksGroupUseCase
 import io.legado.app.domain.usecase.UploadReadingProgressUseCase
 import io.legado.app.domain.usecase.WebDavBackupUseCase
@@ -137,6 +147,7 @@ val appModule = module {
     singleOf(::SearchContentRepository)
     singleOf(::RemoteBookRepository)
     singleOf(::SettingsRepository)
+    singleOf(::LocalPreferencesRepository)
     singleOf(::ExploreBooksUseCase)
     singleOf(::ExploreKindUiUseCase)
     singleOf(::SaveSearchBooksUseCase)
@@ -153,6 +164,7 @@ val appModule = module {
     singleOf(::ResolveBookShelfStateUseCase)
     singleOf(::RefreshTocUseCase)
     singleOf(::AddBookUseCase)
+    singleOf(::AddToBookshelfUseCase)
     singleOf(::ImportBookshelfUseCase)
     singleOf(::ExportBookshelfUseCase)
     factory { GetReadRecordOverviewUseCase() }
@@ -161,6 +173,7 @@ val appModule = module {
     singleOf(::BookshelfManageScreenConfig)
 
     single<UploadRepository> { DirectLinkUploadRepository() }
+    single<TranslationCacheGateway> { TranslationCacheRepositoryImpl() }
     single<AppStartupGateway> { AppStartupRepository(get()) }
     single<BookCacheDownloadGateway> { CacheBookDownloadRepository(get()) }
     single<BookCacheCleanupGateway> { BookCacheCleanupRepository(get()) }
@@ -171,7 +184,9 @@ val appModule = module {
     single<ReadingProgressGateway> { WebDavReadingProgressRepository() }
     single<HomepageModulesGateway> { HomepageModulesRepository(get(), get()) }
     single<BookDomainRepository> { BookDomainRepositoryImpl(get(), get()) }
-    single<ExploreRepository> { ExploreRepositoryImpl(get()) }
+    single { ExploreRepositoryImpl(get()) }
+    single<ExploreRepository> { get<ExploreRepositoryImpl>() }
+    single<ExploreBooksGateway> { get<ExploreRepositoryImpl>() }
     singleOf(::RssRepository)
     single {
         SearchRepositoryImpl(get())
@@ -179,6 +194,9 @@ val appModule = module {
     single<SearchRepository> { get<SearchRepositoryImpl>() }
     single<BookSearchGateway> { get<SearchRepositoryImpl>() }
     singleOf(::SearchBooksUseCase)
+    single<LlmGateway> { LlmTranslateRepositoryImpl() }
+    single<DictionaryGateway> { DictionaryRepositoryImpl() }
+    singleOf(::TranslateChapterUseCase)
 
     single<ImageLoader> {
         ImageLoader.Builder(get())
@@ -229,7 +247,14 @@ val appModule = module {
     viewModelOf(::ServersViewModel)
     viewModelOf(::BookInfoViewModel)
     viewModelOf(::ReadMangaViewModel)
-    viewModelOf(::ReadBookViewModel)
+    viewModel {
+        ReadBookViewModel(
+            application = get(),
+            getReadingProgressUseCase = get(),
+            uploadReadingProgressUseCase = get(),
+            translateChapterUseCase = get()
+        )
+    }
     viewModelOf(::ChangeCoverViewModel)
     viewModelOf(::ChangeBookSourceComposeViewModel)
     viewModelOf(::ChangeBookSourceViewModel)

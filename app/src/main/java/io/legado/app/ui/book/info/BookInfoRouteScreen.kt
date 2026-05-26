@@ -40,10 +40,16 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun BookInfoRouteScreen(
     bookUrl: String,
+    name: String? = null,
+    author: String? = null,
+    origin: String? = null,
+    coverPath: String? = null,
     viewModel: BookInfoViewModel,
     onBack: () -> Unit,
     onFinish: (resultCode: Int?, afterTransition: Boolean) -> Unit,
     onOpenSearch: (String) -> Unit,
+    onNavigateToBookInfo: (name: String?, author: String?, bookUrl: String, origin: String?, coverPath: String?) -> Unit = { _, _, _, _, _ -> },
+    onNavigateToExploreShow: (title: String?, sourceUrl: String, exploreUrl: String?) -> Unit = { _, _, _ -> },
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedCoverKey: String? = null,
@@ -80,8 +86,14 @@ fun BookInfoRouteScreen(
         viewModel.onReaderResult(it.resultCode)
     }
 
-    LaunchedEffect(bookUrl, viewModel) {
-        viewModel.initData(bookUrl)
+    LaunchedEffect(bookUrl, name, author, origin, coverPath, viewModel) {
+        viewModel.initData(
+            bookUrl = bookUrl,
+            name = name,
+            author = author,
+            origin = origin,
+            coverPath = coverPath
+        )
     }
 
     DisposableEffect(viewModel) {
@@ -154,6 +166,14 @@ fun BookInfoRouteScreen(
                             effect.comment,
                         )
                     )
+                }
+
+                is BookInfoEffect.NavigateToBookInfo -> {
+                    onNavigateToBookInfo(effect.name, effect.author, effect.bookUrl, effect.origin, effect.coverPath)
+                }
+
+                is BookInfoEffect.NavigateToExploreShow -> {
+                    onNavigateToExploreShow(effect.title, effect.sourceUrl, effect.exploreUrl)
                 }
             }
         }

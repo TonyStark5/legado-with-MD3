@@ -77,7 +77,7 @@ fun AppModalBottomSheet(
                     }
                 }
             },
-            insideMargin = DpSize(16.dp, 12.dp),
+            insideMargin = DpSize(16.dp, 0.dp),
             backgroundColor = sheetContainerColor,
             dragHandleColor = sheetDragHandleColor,
             onDismissRequest = onDismissRequest,
@@ -104,23 +104,23 @@ fun AppModalBottomSheet(
                 LocalWindowInfo.current.containerSize.height.toDp() * 0.8f
             }
 
-            ModalBottomSheet(
-                onDismissRequest = onDismissRequest,
-                sheetState = sheetState,
-                containerColor = sheetContainerColor,
-                contentColor = sheetContentColor,
-                dragHandle = { BottomSheetDefaults.DragHandle(color = sheetDragHandleColor) }
+            MaterialExpressiveTheme(
+                colorScheme = colorScheme,
+                typography = Typography(),
+                motionScheme = MotionScheme.expressive(),
+                shapes = Shapes()
             ) {
-                MaterialExpressiveTheme(
-                    colorScheme = colorScheme,
-                    typography = Typography(),
-                    motionScheme = MotionScheme.expressive(),
-                    shapes = Shapes()
+                ModalBottomSheet(
+                    onDismissRequest = onDismissRequest,
+                    sheetState = sheetState,
+                    containerColor = sheetContainerColor,
+                    contentColor = sheetContentColor,
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = sheetDragHandleColor) }
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 0.dp)
                             .heightIn(max = maxHeight)
                             .animateContentSize()
                             .then(modifier)

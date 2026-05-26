@@ -51,7 +51,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.entities.SearchKeyword
+import io.legado.app.domain.model.BookShelfState
 import io.legado.app.ui.main.bookCoverSharedElementKey
 import io.legado.app.ui.main.bookshelf.BookShelfItem
 import io.legado.app.ui.theme.LegadoTheme
@@ -64,6 +66,7 @@ import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.SearchBar
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.book.SearchBookListItem
+import io.legado.app.ui.widget.components.book.SearchBookPreviewSheet
 import io.legado.app.ui.widget.components.button.SmallIconButton
 import io.legado.app.ui.widget.components.button.SmallTextButton
 import io.legado.app.ui.widget.components.card.NormalCard
@@ -90,13 +93,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 fun SearchScreen(
     viewModel: SearchViewModel,
     onBack: () -> Unit,
-    onOpenBookInfo: (name: String, author: String, bookUrl: String) -> Unit,
+    onOpenBookInfo: (name: String, author: String, bookUrl: String, origin: String?, coverPath: String?, sharedCoverKey: String?) -> Unit,
     onOpenSourceManage: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var previewBook by remember { mutableStateOf<SearchBook?>(null) }
+    var previewSharedCoverKey by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val lifecycleOwner = LocalLifecycleOwner.current
     var queryInput by rememberSaveable { mutableStateOf(state.query) }
@@ -160,7 +165,14 @@ fun SearchScreen(
         viewModel.effects.collect { effect ->
             when (effect) {
                 is SearchEffect.OpenBookInfo -> {
-                    onOpenBookInfo(effect.name, effect.author, effect.bookUrl)
+                    onOpenBookInfo(
+                        effect.name,
+                        effect.author,
+                        effect.bookUrl,
+                        effect.origin,
+                        effect.coverPath,
+                        effect.sharedCoverKey
+                    )
                 }
 
                 SearchEffect.OpenSourceManage -> onOpenSourceManage()
@@ -394,16 +406,29 @@ fun SearchScreen(
                                 itemsIndexed(
                                     items = state.results,
                                     key = { index, item -> "${item.book.origin}:${item.book.bookUrl}:$index" }
-                                ) { _, item ->
+                                ) { index, item ->
+                                    val sharedCoverKey = bookCoverSharedElementKey(
+                                        item.book.bookUrl,
+                                        "search:${item.book.origin}:$index"
+                                    )
                                     SearchBookListItem(
                                         book = item.book,
                                         shelfState = item.shelfState,
                                         onClick = {
-                                            viewModel.onIntent(SearchIntent.OpenSearchBook(item.book))
+                                            viewModel.onIntent(
+                                                SearchIntent.OpenSearchBook(
+                                                    item.book,
+                                                    sharedCoverKey
+                                                )
+                                            )
+                                        },
+                                        onLongClick = { book, coverKey ->
+                                            previewBook = book
+                                            previewSharedCoverKey = coverKey
                                         },
                                         sharedTransitionScope = sharedTransitionScope,
                                         animatedVisibilityScope = animatedVisibilityScope,
-                                        sharedCoverKey = bookCoverSharedElementKey(item.book.bookUrl)
+                                        sharedCoverKey = sharedCoverKey
                                     )
                                 }
 
@@ -545,6 +570,24 @@ fun SearchScreen(
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
+
+    val previewShelfState = previewBook?.let { book ->
+        state.results.find { it.book.bookUrl == book.bookUrl }?.shelfState
+            ?: BookShelfState.NOT_IN_SHELF
+    }
+    SearchBookPreviewSheet(
+        data = previewBook,
+        shelfState = previewShelfState,
+        sharedCoverKey = previewSharedCoverKey,
+        onDismissRequest = { previewBook = null },
+        onOpenDetail = { book, sharedCoverKey ->
+            previewBook = null
+            viewModel.onIntent(SearchIntent.OpenSearchBook(book, sharedCoverKey))
+        },
+        onAddToShelf = { book ->
+            viewModel.onAddToShelf(book)
+        },
+    )
 }
 
 private data class SearchFloatingSummary(

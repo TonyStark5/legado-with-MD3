@@ -10,27 +10,32 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,11 +51,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.data.entities.SearchBook
 import io.legado.app.domain.model.HomepageModuleType
 import io.legado.app.ui.main.bookCoverSharedElementKey
 import io.legado.app.ui.main.homepage.modules.BannerModule
@@ -60,12 +65,16 @@ import io.legado.app.ui.main.homepage.modules.GridModule
 import io.legado.app.ui.main.homepage.modules.GridRankingModule
 import io.legado.app.ui.main.homepage.modules.RankingModule
 import io.legado.app.ui.main.homepage.modules.WaterfallItem
+import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppPullToRefresh
 import io.legado.app.ui.widget.components.AppScaffold
+import io.legado.app.ui.widget.components.LoadMoreFooter
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.book.SearchBookGridItem
-import io.legado.app.ui.widget.components.button.SecondaryButton
+import io.legado.app.ui.widget.components.book.SearchBookPreviewSheet
 import io.legado.app.ui.widget.components.button.SmallTonalIconButton
+import io.legado.app.ui.widget.components.card.GlassCard
+import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.progressIndicator.AppCircularProgressIndicator
 import io.legado.app.ui.widget.components.tabRow.AppTabRow
 import io.legado.app.ui.widget.components.text.AppText
@@ -84,46 +93,35 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun HomepageScreen(
     viewModel: HomepageViewModel = koinViewModel(),
-    onBookClick: (name: String?, author: String?, bookUrl: String) -> Unit,
+    onBookClick: (name: String?, author: String?, bookUrl: String, origin: String?, coverPath: String?, sharedCoverKey: String?) -> Unit,
     onModuleHeaderClick: (title: String?, sourceUrl: String, exploreUrl: String?) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val allSets by viewModel.setsFlow.collectAsStateWithLifecycle()
-    val browseSources by viewModel.browseSourcesFlow.collectAsStateWithLifecycle()
+    var previewBook by remember { mutableStateOf<SearchBook?>(null) }
+    var previewSharedCoverKey by remember { mutableStateOf<String?>(null) }
+    // Removed allSets and browseSources as they are now part of uiState.manageState
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
     val layoutMode = HomepageConfig.homepageLayoutModeState.value
 
-    val selectedSets = remember(allSets) { allSets.filter { it.isSelected } }
+    val selectedSets = remember(uiState.manageState.sets) {
+        uiState.manageState.sets.filter { it.isSelected }
+    }
     val pagerState = rememberPagerState(pageCount = {
-        if (layoutMode == 1) selectedSets.size.coerceAtLeast(1) else 1
+        selectedSets.size.coerceAtLeast(1)
     })
 
-    val mixedGridState = rememberLazyStaggeredGridState()
     val homeString = stringResource(R.string.home)
-    val currentTitle by remember(
-        layoutMode,
-        pagerState.currentPage,
-        selectedSets,
-        uiState.modules
-    ) {
+    val currentTitle by remember(layoutMode, selectedSets) {
         derivedStateOf {
             if (layoutMode == 1) {
                 homeString
             } else {
-                val firstHeader = mixedGridState.layoutInfo.visibleItemsInfo.firstOrNull {
-                    (it.key as? String)?.startsWith("header_") == true
-                }
-                if (firstHeader != null) {
-                    val id = (firstHeader.key as? String).orEmpty().substringAfter("header_", "")
-                    uiState.modules.find { it.globalId == id }?.setName ?: homeString
-                } else {
-                    homeString
-                }
+                selectedSets.getOrNull(pagerState.currentPage)?.sourceName ?: homeString
             }
         }
     }
@@ -137,7 +135,14 @@ fun HomepageScreen(
         viewModel.effects.collect { effect ->
             when (effect) {
                 is HomepageEffect.NavigateToBookInfo ->
-                    onBookClick(effect.name, effect.author, effect.bookUrl)
+                    onBookClick(
+                        effect.name,
+                        effect.author,
+                        effect.bookUrl,
+                        effect.origin,
+                        effect.coverPath,
+                        effect.sharedCoverKey
+                    )
 
                 is HomepageEffect.NavigateToExploreShow ->
                     onModuleHeaderClick(effect.title, effect.sourceUrl, effect.exploreUrl)
@@ -171,7 +176,10 @@ fun HomepageScreen(
                     if (layoutMode == 1 && selectedSets.isNotEmpty()) {
                         AppTabRow(
                             tabTitles = selectedSets.map { it.sourceName },
-                            selectedTabIndex = pagerState.currentPage,
+                            selectedTabIndex = pagerState.currentPage.coerceIn(
+                                0,
+                                selectedSets.size - 1
+                            ),
                             onTabSelected = { index ->
                                 scope.launch { pagerState.animateScrollToPage(index) }
                             }
@@ -188,48 +196,40 @@ fun HomepageScreen(
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
-            if (layoutMode == 0) {
-                ModuleList(
-                    modules = uiState.modules,
-                    viewModel = viewModel,
-                    gridState = mixedGridState,
-                    modifier = Modifier.fillMaxSize(),
-                    onErrorClick = { errorMsg = it },
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
-                )
+            if (selectedSets.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    AppText(stringResource(R.string.homepage_no_source_sets_selected))
+                }
             } else {
-                if (selectedSets.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        AppText(stringResource(R.string.homepage_no_source_sets_selected))
-                    }
-                } else {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        key = { index -> selectedSets.getOrNull(index)?.sourceUrl ?: index }
-                    ) { pageIndex ->
-                        val source = selectedSets.getOrNull(pageIndex)
-                        val sourceModules = remember(uiState.modules, source) {
-                            uiState.modules.filter { module ->
-                                if (source?.isCustomSet == true) {
-                                    val setId =
-                                        HomepageViewModel.customSetIdFromUrl(source.sourceUrl)
-                                    module.customSetId == setId
-                                } else {
-                                    module.sourceUrl == source?.sourceUrl
-                                }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    key = { index -> selectedSets.getOrNull(index)?.sourceUrl ?: index }
+                ) { pageIndex ->
+                    val source = selectedSets.getOrNull(pageIndex)
+                    val sourceModules = remember(uiState.modules, source) {
+                        uiState.modules.filter { module ->
+                            if (source?.isCustomSet == true) {
+                                val setId =
+                                    HomepageViewModel.customSetIdFromUrl(source.sourceUrl)
+                                module.customSetId == setId
+                            } else {
+                                module.sourceUrl == source?.sourceUrl
                             }
                         }
-                        ModuleList(
-                            modules = sourceModules,
-                            viewModel = viewModel,
-                            modifier = Modifier.fillMaxSize(),
-                            onErrorClick = { errorMsg = it },
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                        )
                     }
+                    ModuleList(
+                        modules = sourceModules,
+                        viewModel = viewModel,
+                        modifier = Modifier.fillMaxSize(),
+                        onErrorClick = { errorMsg = it },
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        onBookLongClick = { book, sharedCoverKey ->
+                            previewBook = book
+                            previewSharedCoverKey = sharedCoverKey
+                        },
+                    )
                 }
             }
         }
@@ -244,55 +244,61 @@ fun HomepageScreen(
                 errorMsg = null
             },
             dismissText = stringResource(R.string.close),
-            onDismiss = { errorMsg = null }
+            onDismiss = { errorMsg = null },
+            content = { msg ->
+                SelectionContainer {
+                    AppText(
+                        text = msg,
+                        style = LegadoTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .heightIn(max = 400.dp)
+                            .verticalScroll(rememberScrollState())
+                    )
+                }
+            }
         )
 
         HomepageModuleManageSheet(
             data = if (uiState.isManageMode) Unit else null,
             onDismissRequest = { viewModel.toggleManageMode() },
-            sets = allSets,
-            browseSources = browseSources,
-            onToggleSet = { url, isEnabled -> viewModel.toggleSourceFilter(url, isEnabled) },
-            onGetModulesInSet = { viewModel.getJoinedModules(it) },
-            onGetSourceModules = { url, setId -> viewModel.getSourceModules(url, setId) },
-            onToggleModule = { id, visible -> viewModel.setModuleVisible(id, visible) },
-            onJoinModule = { sourceUrl, targetSetId, def ->
-                viewModel.joinModule(
-                    sourceUrl,
-                    targetSetId,
-                    def
-                )
-            },
-            onAddCustomModule = { sourceUrl, targetSetId, def ->
-                viewModel.addCustomModule(
-                    sourceUrl,
-                    targetSetId,
-                    def
-                )
-            },
-            onAddButtonGroupFromKinds = { sourceUrl, targetSetId, title, kinds ->
-                viewModel.addButtonGroupFromKinds(
-                    sourceUrl,
-                    targetSetId,
-                    title,
-                    kinds
-                )
-            },
-            onGetExploreKinds = { viewModel.getSourceExploreKinds(it) },
-            onUpdateModule = { globalId, def -> viewModel.updateModule(globalId, def) },
-            onDeleteModule = { viewModel.deleteModule(it) },
-            onReorderModules = { ids -> viewModel.reorderJoinedModules(ids) },
-            onReorderSets = { urls -> viewModel.reorderCustomSets(urls) },
-            onSetCustomSetTitle = { id, title -> viewModel.setModuleCustomSetTitle(id, title) },
-            onCreateCustomSet = { viewModel.createCustomSet(it) },
-            onRenameCustomSet = { id, name -> viewModel.renameCustomSet(id, name) },
-            onDeleteCustomSet = { viewModel.deleteCustomSet(it) },
-            onGetAllModulesGroupedBySource = { viewModel.getAllModulesGroupedBySource() },
-            onGetSourceName = { viewModel.getSourceName(it) },
-            onAssignModuleToCustomSet = { id, setId ->
-                viewModel.assignModuleToCustomSet(
-                    id,
-                    setId
+            state = uiState.manageState,
+            actions = remember {
+                HomepageManageActions(
+                    onToggleSet = { url, isEnabled ->
+                        viewModel.toggleSourceFilter(
+                            url,
+                            isEnabled
+                        )
+                    },
+                    onGetSourceModules = { url, setId -> viewModel.getSourceModules(url, setId) },
+                    onSyncSourceModules = { viewModel.syncSourceModules(it) },
+                    onToggleModule = { id, visible -> viewModel.setModuleVisible(id, visible) },
+                    onJoinModule = { sourceUrl, targetSetId, def ->
+                        viewModel.joinModule(sourceUrl, targetSetId, def)
+                    },
+                    onAddCustomModule = { sourceUrl, targetSetId, def ->
+                        viewModel.addCustomModule(sourceUrl, targetSetId, def)
+                    },
+                    onAddButtonGroupFromKinds = { sourceUrl, targetSetId, title, kinds ->
+                        viewModel.addButtonGroupFromKinds(sourceUrl, targetSetId, title, kinds)
+                    },
+                    onGetExploreKinds = { viewModel.getSourceExploreKinds(it) },
+                    onUpdateModule = { globalId, def -> viewModel.updateModule(globalId, def) },
+                    onDeleteModule = { viewModel.deleteModule(it) },
+                    onReorderModules = { ids -> viewModel.reorderJoinedModules(ids) },
+                    onReorderSets = { urls -> viewModel.reorderCustomSets(urls) },
+                    onSetCustomSetTitle = { id, title ->
+                        viewModel.setModuleCustomSetTitle(
+                            id,
+                            title
+                        )
+                    },
+                    onCreateCustomSet = { viewModel.createCustomSet(it) },
+                    onRenameCustomSet = { id, name -> viewModel.renameCustomSet(id, name) },
+                    onDeleteCustomSet = { viewModel.deleteCustomSet(it) },
+                    onAssignModuleToCustomSet = { id, setId ->
+                        viewModel.assignModuleToCustomSet(id, setId)
+                    }
                 )
             }
         )
@@ -302,6 +308,23 @@ fun HomepageScreen(
             onDismissRequest = { viewModel.toggleConfigMode() },
             layoutMode = layoutMode,
             onLayoutModeChange = { viewModel.setLayoutMode(it) },
+        )
+
+        SearchBookPreviewSheet(
+            data = previewBook,
+            shelfState = previewBook?.let { viewModel.getCurrentBookShelfState(it) },
+            sharedCoverKey = previewSharedCoverKey,
+            onDismissRequest = { previewBook = null },
+            onOpenDetail = { book, sharedCoverKey ->
+                previewBook = null
+                onBookClick(
+                    book.name, book.author, book.bookUrl,
+                    book.origin, book.coverUrl, sharedCoverKey
+                )
+            },
+            onAddToShelf = { book ->
+                viewModel.onAddToShelf(book)
+            },
         )
     }
 }
@@ -315,6 +338,7 @@ private fun ModuleList(
     gridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onBookLongClick: (SearchBook, String?) -> Unit = { _, _ -> },
     onErrorClick: (String) -> Unit
 ) {
     if (modules.isEmpty()) {
@@ -355,12 +379,14 @@ private fun ModuleList(
                 item(key = "header_${moduleUi.globalId}", span = StaggeredGridItemSpan.FullLine) {
                     ModuleHeader(
                         title = moduleUi.title,
-                        onNavigate = {
-                            viewModel.onModuleHeaderClick(
-                                moduleUi.sourceUrl,
-                                moduleUi.exploreUrl,
-                                moduleUi.title,
-                            )
+                        onNavigate = if (moduleUi.type == HomepageModuleType.ButtonGroup) null else {
+                            {
+                                viewModel.onModuleHeaderClick(
+                                    moduleUi.sourceUrl,
+                                    moduleUi.exploreUrl,
+                                    moduleUi.title,
+                                )
+                            }
                         },
                     )
                 }
@@ -390,27 +416,78 @@ private fun ModuleList(
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(80.dp)
-                                    .clickable { onErrorClick(state.message) },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
+                                    .fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                AppText(
-                                    text = state.message,
-                                    color = MaterialTheme.colorScheme.error,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                SecondaryButton(
-                                    text = stringResource(R.string.retry),
-                                    onClick = {
-                                        viewModel.retryModule(moduleUi.globalId)
+                                GlassCard(
+                                    onClick = { onErrorClick(state.message) },
+                                    containerColor = LegadoTheme.colorScheme.errorContainer.copy(
+                                        alpha = 0.6f
+                                    ),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(
+                                                    horizontal = 16.dp,
+                                                    vertical = 16.dp
+                                                ),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+
+                                            AppIcon(
+                                                imageVector = Icons.Outlined.Info,
+                                                contentDescription = null,
+                                                tint = LegadoTheme.colorScheme.error
+                                            )
+
+                                            AppText(
+                                                text = state.message,
+                                                color = LegadoTheme.colorScheme.error,
+                                                style = LegadoTheme.typography.bodySmall,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+
+                                        HorizontalDivider(
+                                            color = LegadoTheme.colorScheme.error.copy(alpha = 0.3f)
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    viewModel.retryModule(moduleUi.globalId)
+                                                }
+                                                .padding(vertical = 10.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                AppIcon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    tint = LegadoTheme.colorScheme.error
+                                                )
+
+                                                AppText(
+                                                    text = "重试",
+                                                    color = LegadoTheme.colorScheme.error,
+                                                    style = LegadoTheme.typography.labelMedium
+                                                )
+                                            }
+                                        }
                                     }
-                                )
+                                }
                             }
                         }
                     }
@@ -435,68 +512,75 @@ private fun ModuleList(
                         val config = moduleUi.config
                         when (moduleUi.type) {
                             HomepageModuleType.Waterfall -> {
-                                items(
+                                itemsIndexed(
                                     state.books,
-                                    key = { "wf_${moduleUi.globalId}_${it.bookUrl}" }) { book ->
+                                    key = { index, item -> "wf_${moduleUi.globalId}_${item.book.bookUrl}_$index" }) { index, item ->
+                                    val sharedCoverKey = bookCoverSharedElementKey(
+                                        item.book.bookUrl,
+                                        "home:${moduleUi.globalId}:waterfall:$index"
+                                    )
                                     WaterfallItem(
-                                        book = book,
-                                        onClick = { viewModel.onBookClick(book) },
+                                        item = item,
+                                        onClick = {
+                                            viewModel.onBookClick(
+                                                item.book,
+                                                sharedCoverKey
+                                            )
+                                        },
+                                        onLongClick = onBookLongClick,
                                         sharedTransitionScope = sharedTransitionScope,
                                         animatedVisibilityScope = animatedVisibilityScope,
+                                        sharedCoverKey = sharedCoverKey,
                                     )
                                 }
 
-                                if (state.hasMore) {
-                                    item(
-                                        key = "wf_more_${moduleUi.globalId}",
-                                        span = StaggeredGridItemSpan.FullLine
-                                    ) {
-                                        LaunchedEffect(state.books.size) {
-                                            viewModel.loadMoreModule(moduleUi.globalId)
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(16.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            AppCircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                        }
-                                    }
+                                item(
+                                    key = "wf_more_${moduleUi.globalId}",
+                                    span = StaggeredGridItemSpan.FullLine
+                                ) {
+                                    LoadMoreFooter(
+                                        isLoading = state.isLoadingMore,
+                                        errorMsg = null,
+                                        isEnd = !state.hasMore,
+                                        onRetry = { viewModel.loadMoreModule(moduleUi.globalId) }
+                                    )
                                 }
                             }
 
                             HomepageModuleType.InfiniteGrid -> {
-                                items(
+                                itemsIndexed(
                                     state.books,
-                                    key = { "inf_grid_${moduleUi.globalId}_${it.bookUrl}" }) { book ->
+                                    key = { index, item -> "inf_grid_${moduleUi.globalId}_${item.book.bookUrl}_$index" }) { index, item ->
+                                    val sharedCoverKey = bookCoverSharedElementKey(
+                                        item.book.bookUrl,
+                                        "home:${moduleUi.globalId}:infinite:$index"
+                                    )
                                     SearchBookGridItem(
-                                        book = book,
-                                        shelfState = io.legado.app.domain.model.BookShelfState.NOT_IN_SHELF,
-                                        onClick = { viewModel.onBookClick(book) },
+                                        book = item.book,
+                                        shelfState = item.shelfState,
+                                        onClick = {
+                                            viewModel.onBookClick(
+                                                item.book,
+                                                sharedCoverKey
+                                            )
+                                        },
+                                        onLongClick = onBookLongClick,
                                         sharedTransitionScope = sharedTransitionScope,
                                         animatedVisibilityScope = animatedVisibilityScope,
-                                        sharedCoverKey = bookCoverSharedElementKey(book.bookUrl)
+                                        sharedCoverKey = sharedCoverKey
                                     )
                                 }
 
-                                if (state.hasMore) {
-                                    item(
-                                        key = "inf_grid_more_${moduleUi.globalId}",
-                                        span = StaggeredGridItemSpan.FullLine
-                                    ) {
-                                        LaunchedEffect(state.books.size) {
-                                            viewModel.loadMoreModule(moduleUi.globalId)
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(16.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            AppCircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                        }
-                                    }
+                                item(
+                                    key = "inf_grid_more_${moduleUi.globalId}",
+                                    span = StaggeredGridItemSpan.FullLine
+                                ) {
+                                    LoadMoreFooter(
+                                        isLoading = state.isLoadingMore,
+                                        errorMsg = null,
+                                        isEnd = !state.hasMore,
+                                        onRetry = { viewModel.loadMoreModule(moduleUi.globalId) }
+                                    )
                                 }
                             }
 
@@ -509,12 +593,16 @@ private fun ModuleList(
                                 ) {
                                     GridModule(
                                         books = state.books,
-                                        onClick = { viewModel.onBookClick(it) },
+                                        onClick = { book, sharedCoverKey ->
+                                            viewModel.onBookClick(book, sharedCoverKey)
+                                        },
+                                        onLongClick = onBookLongClick,
                                         modifier = Modifier.fillMaxWidth(),
                                         columns = columns,
                                         maxRows = rows,
                                         sharedTransitionScope = sharedTransitionScope,
                                         animatedVisibilityScope = animatedVisibilityScope,
+                                        sharedCoverKeySourceId = "home:${moduleUi.globalId}:grid",
                                     )
                                 }
                             }
@@ -528,10 +616,14 @@ private fun ModuleList(
                                         ) {
                                             BannerModule(
                                                 books = state.books,
-                                                onClick = { viewModel.onBookClick(it) },
+                                                onClick = { book, sharedCoverKey ->
+                                                    viewModel.onBookClick(book, sharedCoverKey)
+                                                },
+                                                onLongClick = onBookLongClick,
                                                 modifier = Modifier.fillMaxWidth(),
                                                 sharedTransitionScope = sharedTransitionScope,
                                                 animatedVisibilityScope = animatedVisibilityScope,
+                                                sharedCoverKeySourceId = "home:${moduleUi.globalId}:banner",
                                             )
                                         }
                                     }
@@ -543,10 +635,14 @@ private fun ModuleList(
                                         ) {
                                             RankingModule(
                                                 books = state.books,
-                                                onClick = { viewModel.onBookClick(it) },
+                                                onClick = { book, sharedCoverKey ->
+                                                    viewModel.onBookClick(book, sharedCoverKey)
+                                                },
+                                                onLongClick = onBookLongClick,
                                                 modifier = Modifier.fillMaxWidth(),
                                                 sharedTransitionScope = sharedTransitionScope,
                                                 animatedVisibilityScope = animatedVisibilityScope,
+                                                sharedCoverKeySourceId = "home:${moduleUi.globalId}:ranking",
                                             )
                                         }
                                     }
@@ -558,11 +654,15 @@ private fun ModuleList(
                                         ) {
                                             GridRankingModule(
                                                 books = state.books,
-                                                onClick = { viewModel.onBookClick(it) },
+                                                onClick = { book, sharedCoverKey ->
+                                                    viewModel.onBookClick(book, sharedCoverKey)
+                                                },
+                                                onLongClick = onBookLongClick,
                                                 modifier = Modifier.fillMaxWidth(),
                                                 rows = config["layout_rows"]?.toIntOrNull() ?: 4,
                                                 sharedTransitionScope = sharedTransitionScope,
                                                 animatedVisibilityScope = animatedVisibilityScope,
+                                                sharedCoverKeySourceId = "home:${moduleUi.globalId}:grid-ranking",
                                             )
                                         }
                                     }
@@ -574,10 +674,14 @@ private fun ModuleList(
                                         ) {
                                             CardModule(
                                                 books = state.books,
-                                                onClick = { viewModel.onBookClick(it) },
+                                                onClick = { book, sharedCoverKey ->
+                                                    viewModel.onBookClick(book, sharedCoverKey)
+                                                },
+                                                onLongClick = onBookLongClick,
                                                 modifier = Modifier.fillMaxWidth(),
                                                 sharedTransitionScope = sharedTransitionScope,
                                                 animatedVisibilityScope = animatedVisibilityScope,
+                                                sharedCoverKeySourceId = "home:${moduleUi.globalId}:card",
                                             )
                                         }
                                     }
@@ -596,7 +700,7 @@ private fun ModuleList(
 @Composable
 private fun ModuleHeader(
     title: String,
-    onNavigate: () -> Unit,
+    onNavigate: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -612,9 +716,11 @@ private fun ModuleHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        SmallTonalIconButton(
-            onClick = onNavigate,
-            imageVector = Icons.AutoMirrored.Filled.ArrowForward
-        )
+        if (onNavigate != null) {
+            SmallTonalIconButton(
+                onClick = onNavigate,
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward
+            )
+        }
     }
 }

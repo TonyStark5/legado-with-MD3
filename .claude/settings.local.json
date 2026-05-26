@@ -98,10 +98,17 @@
       "Bash(findstr /i \"material3.*sources\")",
       "WebFetch(domain:android.googlesource.com)",
       "Read(//c/Users//**)",
-      "Read(//c/Users/**)",
       "Bash(Get-ChildItem -Path \"D:\\\\AndroidPrj\\\\legado-with-MD3\" -Directory -Depth 0)",
       "Bash(Select-Object Name)",
-      "PowerShell(Get-ChildItem -Path \"D:\\\\AndroidPrj\\\\legado-with-MD3\\\\app\\\\src\\\\main\\\\java\\\\io\\\\legado\\\\app\" -Directory -Depth 1 | ForEach-Object { $_.FullName.Replace\\(\"D:\\\\AndroidPrj\\\\legado-with-MD3\\\\app\\\\src\\\\main\\\\java\\\\io\\\\legado\\\\app\\\\\", \"\"\\) })"
+      "PowerShell(Get-ChildItem -Path \"D:\\\\AndroidPrj\\\\legado-with-MD3\\\\app\\\\src\\\\main\\\\java\\\\io\\\\legado\\\\app\" -Directory -Depth 1 | ForEach-Object { $_.FullName.Replace\\(\"D:\\\\AndroidPrj\\\\legado-with-MD3\\\\app\\\\src\\\\main\\\\java\\\\io\\\\legado\\\\app\\\\\", \"\"\\) })",
+      "Bash(gh pr *)",
+      "PowerShell(Get-Content *)",
+      "Bash(python *)",
+      "Bash(C:\\\\Users\\\\www13\\\\.claude\\\\projects\\\\D--AndroidPrj-legado-with-MD3\\\\c1441549-f22e-480f-8eaf-d830b19148d1\\\\tool-results\\\\guangyu_source.json)",
+      "Bash(node -e ' *)",
+      "Bash(node *)",
+      "Bash(Select-String -Pattern \"BUILD|error|Error\")",
+      "Bash(Select-Object -First 10)"
     ]
   }
 }

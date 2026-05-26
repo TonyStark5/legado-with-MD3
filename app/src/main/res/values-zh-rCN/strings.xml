@@ -952,6 +952,7 @@
     <string name="hide_when_status_bar_show">状态栏显示时隐藏</string>
     <string name="reverse_toc">反转目录</string>
     <string name="show_discovery">显示发现</string>
+    <string name="show_home">显示首页</string>
     <string name="style">样式</string>
     <string name="group_style">分组样式</string>
     <string name="export_file_name">导出文件名</string>
@@ -975,6 +976,7 @@
     <string name="pref_anti_alias_summary">绘制图片时抗锯齿</string>
     <string name="upload_url">上传 URL</string>
     <string name="download_url_rule">下载 URL 规则</string>
+    <string name="related_books">关联书籍（relatedBooks）</string>
     <string name="clipboard_empty">剪贴板没有内容</string>
     <string name="clipboard_empty_or_invalid">剪贴板为空或格式不正确</string>
     <string name="invalid_format">格式不正确</string>
@@ -1619,6 +1621,11 @@
     <string name="underline_padding">离字间距</string>
 	<string name="layout_setting">布局设置</string>
 	<string name="cover_info_orientation">封面信息方向</string>
+    <string name="network_book_badge_setting">网络书籍角标设置</string>
+    <string name="filter_show_all">全部显示</string>
+    <string name="filter_hide_in_shelf">隐藏已在书架的同源书籍</string>
+    <string name="filter_hide_same_name_author">隐藏已在书架的非同源书籍</string>
+    <string name="filter_show_not_in_shelf_only">只显示不在书架的书籍</string>
 	<string name="rule_segment">规则</string>
 	<string name="tool_bar_style">工具栏样式</string>
 	<string name="split_title">标题分段</string>
@@ -1688,7 +1695,7 @@
     <string name="homepage_tab_discover">发现</string>
     <string name="homepage_no_joined_modules">暂无已加入的模块</string>
     <string name="homepage_standard_modules_sortable">标准模块 (可拖拽排序)</string>
-    <string name="homepage_infinite_module_bottom">底栏无限模块</string>
+    <string name="homepage_infinite_module_bottom">底栏模块 (无限加载，仅可存在一个)</string>
     <string name="homepage_in_effect">当前生效</string>
     <string name="homepage_blocked">已被屏蔽</string>
     <string name="homepage_source_json_empty">该书源的 homepageModules JSON 为空</string>
@@ -1710,6 +1717,11 @@
     <string name="homepage_delete_custom_set_confirm">确定要删除该集及其包含的所有模块副本吗？</string>
     <string name="homepage_remove_module">移除模块</string>
     <string name="homepage_remove_module_confirm">确定要从当前集中移除该模块吗？</string>
+    <string name="homepage_select_from_kinds">从发现分类选择</string>
+    <string name="homepage_select_multiple_kinds">选择多个分类</string>
+    <string name="homepage_n_selected">已选择 %1$d 个</string>
+    <string name="homepage_select_one_kind">选择一个分类</string>
+    <string name="or">或</string>
     <string name="homepage_add_button_group">添加按钮组</string>
     <string name="homepage_module_title_label">模块标题</string>
     <string name="homepage_custom_title">自定义标题</string>
@@ -1733,4 +1745,36 @@
     <string name="homepage_status_in_effect"> · 当前生效</string>
     <string name="homepage_status_blocked"> · 已被屏蔽</string>
     <string name="homepage_status_joined"> · 已加入</string>
+
+    <!-- Translation -->
+    <string name="translate">翻译</string>
+    <string name="translation_config">翻译设置</string>
+    <string name="llm_translate_enabled">启用章节翻译</string>
+    <string name="translation_provider">翻译提供商</string>
+    <string name="llm_provider">提供商</string>
+    <string name="openai_config">OpenAI 配置</string>
+    <string name="llm_base_url">基础 URL</string>
+    <string name="llm_api_key">API 密钥</string>
+    <string name="llm_model">模型</string>
+    <string name="translation_options">翻译选项</string>
+    <string name="llm_target_language">目标语言</string>
+    <string name="llm_max_chars_per_chunk">每块最大字符数</string>
+    <string name="llm_concurrent_chunks">并发块数</string>
+    <string name="llm_retry_count">重试次数</string>
+    <string name="translation_prompt">翻译提示词</string>
+    <string name="llm_prompt">提示词</string>
+    <string name="translate_chapter">翻译章节</string>
+    <string name="show_original">显示原文</string>
+    <string name="retranslate_chapter">重新翻译章节</string>
+    <string name="retranslate_confirm">这将删除现有翻译并重新翻译。是否继续？</string>
+    <string name="translation_in_progress">翻译中: %1$d/%2$d</string>
+    <string name="translation_failed">翻译失败: %1$s</string>
+    <string name="no_translation_cache">无翻译缓存</string>
+    <string name="delete_translation_cache">删除翻译缓存</string>
+    <string name="translation_cache_size">缓存大小: %1$s</string>
+    <string name="clear_translation_cache">清除缓存</string>
+    <string name="translation_cache">翻译缓存</string>
+    <string name="return_to_original">返回原文</string>
+    <string name="translation_progress">翻译中 %1$d%%</string>
+    <string name="translation_started">开始进行翻译，请耐心等待……</string>
 </resources>

@@ -1,8 +1,6 @@
 package io.legado.app.ui.book.explore
 
 import android.annotation.SuppressLint
-import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.Crossfade
@@ -13,8 +11,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,19 +23,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
@@ -52,9 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
@@ -62,6 +53,7 @@ import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.domain.model.BookShelfState
 import io.legado.app.domain.usecase.ExploreKindUiUseCase
+import io.legado.app.ui.config.coverConfig.CoverConfig
 import io.legado.app.ui.main.bookCoverSharedElementKey
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.ThemeResolver
@@ -69,15 +61,12 @@ import io.legado.app.ui.theme.responsiveHazeEffect
 import io.legado.app.ui.theme.responsiveHazeSource
 import io.legado.app.ui.widget.components.AppPullToRefresh
 import io.legado.app.ui.widget.components.AppScaffold
-import io.legado.app.ui.widget.components.SearchBar
+import io.legado.app.ui.widget.components.LoadMoreFooter
 import io.legado.app.ui.widget.components.book.SearchBookGridItem
 import io.legado.app.ui.widget.components.book.SearchBookListItem
-import io.legado.app.ui.widget.components.button.AnimatedTextButton
+import io.legado.app.ui.widget.components.book.SearchBookPreviewSheet
 import io.legado.app.ui.widget.components.card.TextCard
-import io.legado.app.ui.widget.components.explore.ExploreKindMultiTypeItem
-import io.legado.app.ui.widget.components.explore.calculateExploreKindRows
-import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
-import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
+import io.legado.app.ui.widget.components.explore.ExploreKindSelectSheet
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.topbar.GlassMediumFlexibleTopAppBar
@@ -98,23 +87,33 @@ fun ExploreShowScreen(
     sourceUrl: String?,
     exploreUrl: String?,
     onBack: () -> Unit,
-    onBookClick: (SearchBook) -> Unit,
+    onBookClick: (SearchBook, String?) -> Unit,
     viewModel: ExploreShowViewModel = koinViewModel(),
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
+    var previewBook by remember { mutableStateOf<SearchBook?>(null) }
+    var previewSharedCoverKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(sourceUrl, exploreUrl, viewModel) {
         viewModel.initData(sourceUrl, exploreUrl)
     }
 
-    val books by viewModel.uiBooks.collectAsState()
+    val rawBooks by viewModel.uiBooks.collectAsState()
+    val filterStateId = CoverConfig.exploreFilterState
+    val books = remember(rawBooks, filterStateId) {
+        val filter = BookFilterState.fromId(filterStateId)
+        when (filter) {
+            BookFilterState.SHOW_ALL -> rawBooks
+            BookFilterState.HIDE_IN_SHELF -> rawBooks.filter { it.shelfState != BookShelfState.IN_SHELF }
+            BookFilterState.HIDE_SAME_NAME_AUTHOR -> rawBooks.filter { it.shelfState != BookShelfState.SAME_NAME_AUTHOR }
+            BookFilterState.SHOW_NOT_IN_SHELF_ONLY -> rawBooks.filter { it.shelfState == BookShelfState.NOT_IN_SHELF }
+        }
+    }
     val isBookEnd by viewModel.isEnd.collectAsState()
     val shouldTriggerAutoLoad by viewModel.shouldTriggerAutoLoad.collectAsState()
-    val kinds by viewModel.kinds.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMsg by viewModel.errorMsg.collectAsState()
-    val filterState by viewModel.filterState.collectAsState()
     val selectedTitle by viewModel.selectedKindTitle.collectAsState()
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
@@ -125,8 +124,6 @@ fun ExploreShowScreen(
     var showGridCountSheet by remember { mutableStateOf(false) }
     val gridColumnCount by viewModel.gridCount.collectAsState()
     val isMiuix = ThemeResolver.isMiuixEngine(LegadoTheme.composeEngine)
-    val context = LocalContext.current
-    val activity = context as? AppCompatActivity
     val exploreKindUseCase: ExploreKindUiUseCase = koinInject()
 
     LaunchedEffect(sourceUrl) {
@@ -151,7 +148,6 @@ fun ExploreShowScreen(
             total > 0 && last >= total - 1
         }
     }
-    var showMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(shouldLoadMoreList.value, isGridMode) {
         if (!isGridMode && shouldLoadMoreList.value) viewModel.loadMore()
@@ -233,73 +229,16 @@ fun ExploreShowScreen(
     }
 
 
-    AppModalBottomSheet(
+    ExploreKindSelectSheet(
         show = showKindSheet,
-        onDismissRequest = { showKindSheet = false }
-    ) {
-
-        var kindQuery by remember { mutableStateOf("") }
-
-        SearchBar(
-            query = kindQuery,
-            backgroundColor = LegadoTheme.colorScheme.surface.copy(alpha = 0.5f),
-            onQueryChange = { kindQuery = it },
-            placeholder = "选择或搜索分类",
-        )
-
-        val filteredKinds = remember(kindQuery, kinds) {
-            if (kindQuery.isBlank()) kinds
-            else kinds.filter { kind ->
-                kind.title.contains(kindQuery, ignoreCase = true) ||
-                        (kind.url?.contains(kindQuery, ignoreCase = true) == true)
+        onDismissRequest = { showKindSheet = false },
+        sourceUrl = sourceUrl,
+        onSelected = { selectedKinds ->
+            selectedKinds.firstOrNull()?.let { kind ->
+                viewModel.switchExploreUrl(kind)
             }
         }
-        val kindRows = remember(filteredKinds) {
-            calculateExploreKindRows(filteredKinds, 6)
-        }
-
-        LazyColumn(
-            contentPadding = PaddingValues(vertical = 16.dp),
-            modifier = Modifier.weight(1f, fill = false)
-        ) {
-            items(kindRows) { rowItems ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .animateItem()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    rowItems.forEach { (kind, span) ->
-                        ExploreKindMultiTypeItem(
-                            modifier = Modifier
-                                .weight(span.toFloat())
-                                .animateItem(),
-                            kind = kind,
-                            sourceUrl = sourceUrl,
-                            activity = activity,
-                            onOpenUrl = { url ->
-                                showKindSheet = false
-                                viewModel.switchExploreUrl(kind.copy(url = url))
-                            },
-                            onRefreshKinds = viewModel::refreshKinds,
-                            backgroundColor = LegadoTheme.colorScheme.surface.copy(alpha = 0.5f),
-                            isMiuix = isMiuix,
-                            useCase = exploreKindUseCase
-                        )
-                    }
-
-                    val totalSpan = rowItems.sumOf { it.second }
-                    if (totalSpan < 6) {
-                        Spacer(
-                            modifier = Modifier.weight((6 - totalSpan).toFloat())
-                        )
-                    }
-                }
-            }
-        }
-    }
-
+    )
 
     AppScaffold(
         modifier = Modifier
@@ -318,12 +257,6 @@ fun ExploreShowScreen(
                         horizontalArrangement = Arrangement.End,
                         modifier = Modifier.animateContentSize(tween(300))
                     ) {
-                        TopBarActionButton(
-                            onClick = { showMenu = true },
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Filter"
-                        )
-
                         TopBarActionButton(
                             onClick = { showKindSheet = true },
                             imageVector = Icons.Outlined.FilterAlt,
@@ -348,59 +281,6 @@ fun ExploreShowScreen(
                         imageVector = if (!isGridMode) Icons.AutoMirrored.Outlined.FormatListBulleted else Icons.Default.GridView,
                         contentDescription = "切换布局"
                     )
-
-                    RoundDropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        RoundDropdownMenuItem(
-                            text = "全部显示",
-                            onClick = {
-                                viewModel.setFilterState(BookFilterState.SHOW_ALL)
-                                showMenu = false
-                            },
-                            trailingIcon = {
-                                if (filterState == BookFilterState.SHOW_ALL)
-                                    Icon(Icons.Default.Check, null)
-                            }
-                        )
-
-                        RoundDropdownMenuItem(
-                            text = "隐藏已在书架的同源书籍",
-                            onClick = {
-                                viewModel.setFilterState(BookFilterState.HIDE_IN_SHELF)
-                                showMenu = false
-                            },
-                            trailingIcon = {
-                                if (filterState == BookFilterState.HIDE_IN_SHELF)
-                                    Icon(Icons.Default.Check, null)
-                            }
-                        )
-
-                        RoundDropdownMenuItem(
-                            text = "隐藏已在书架的非同源书籍",
-                            onClick = {
-                                viewModel.setFilterState(BookFilterState.HIDE_SAME_NAME_AUTHOR)
-                                showMenu = false
-                            },
-                            trailingIcon = {
-                                if (filterState == BookFilterState.HIDE_SAME_NAME_AUTHOR)
-                                    Icon(Icons.Default.Check, null)
-                            }
-                        )
-
-                        RoundDropdownMenuItem(
-                            text = "只显示不在书架的书籍",
-                            onClick = {
-                                viewModel.setFilterState(BookFilterState.SHOW_NOT_IN_SHELF_ONLY)
-                                showMenu = false
-                            },
-                            trailingIcon = {
-                                if (filterState == BookFilterState.SHOW_NOT_IN_SHELF_ONLY)
-                                    Icon(Icons.Default.Check, null)
-                            }
-                        )
-                    }
                 },
                 scrollBehavior = scrollBehavior
             )
@@ -433,17 +313,26 @@ fun ExploreShowScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(
+                        itemsIndexed(
                             items = books,
-                            key = { it.book.bookUrl }
-                        ) { item ->
+                            key = { index, item -> "${item.book.bookUrl}:$index" }
+                        ) { index, item ->
+                            val sharedCoverKey = bookCoverSharedElementKey(
+                                item.book.bookUrl,
+                                "explore:grid:$index"
+                            )
                             ExploreBookGridItem(
                                 book = item.book,
                                 shelfState = item.shelfState,
-                                onClick = { onBookClick(item.book) },
+                                onClick = { onBookClick(item.book, sharedCoverKey) },
+                                onLongClick = { book, coverKey ->
+                                    previewBook = book
+                                    previewSharedCoverKey = coverKey
+                                },
                                 modifier = Modifier.animateItem(),
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
+                                sharedCoverKey = sharedCoverKey,
                             )
                         }
 
@@ -467,17 +356,26 @@ fun ExploreShowScreen(
                             bottom = paddingValues.calculateBottomPadding() + 16.dp
                         )
                     ) {
-                        items(
+                        itemsIndexed(
                             items = books,
-                            key = { it.book.bookUrl }
-                        ) { item ->
+                            key = { index, item -> "${item.book.bookUrl}:$index" }
+                        ) { index, item ->
+                            val sharedCoverKey = bookCoverSharedElementKey(
+                                item.book.bookUrl,
+                                "explore:list:$index"
+                            )
                             ExploreBookItem(
                                 book = item.book,
                                 shelfState = item.shelfState,
-                                onClick = { onBookClick(item.book) },
+                                onClick = { onBookClick(item.book, sharedCoverKey) },
+                                onLongClick = { book, coverKey ->
+                                    previewBook = book
+                                    previewSharedCoverKey = coverKey
+                                },
                                 modifier = Modifier.animateItem(),
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
+                                sharedCoverKey = sharedCoverKey,
                             )
                         }
 
@@ -495,6 +393,24 @@ fun ExploreShowScreen(
             }
         }
     }
+
+    val previewShelfState = previewBook?.let { book ->
+        books.find { it.book.bookUrl == book.bookUrl }?.shelfState
+            ?: BookShelfState.NOT_IN_SHELF
+    }
+    SearchBookPreviewSheet(
+        data = previewBook,
+        shelfState = previewShelfState,
+        sharedCoverKey = previewSharedCoverKey,
+        onDismissRequest = { previewBook = null },
+        onOpenDetail = { book, sharedCoverKey ->
+            previewBook = null
+            onBookClick(book, sharedCoverKey)
+        },
+        onAddToShelf = { book ->
+            viewModel.onAddToShelf(book)
+        },
+    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -503,18 +419,21 @@ fun ExploreBookItem(
     book: SearchBook,
     shelfState: BookShelfState,
     onClick: () -> Unit,
+    onLongClick: ((SearchBook, String?) -> Unit)? = null,
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedCoverKey: String? = null,
 ) {
     SearchBookListItem(
         book = book,
         shelfState = shelfState,
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
-        sharedCoverKey = bookCoverSharedElementKey(book.bookUrl)
+        sharedCoverKey = sharedCoverKey
     )
 }
 
@@ -524,71 +443,21 @@ fun ExploreBookGridItem(
     book: SearchBook,
     onClick: () -> Unit,
     shelfState: BookShelfState,
+    onLongClick: ((SearchBook, String?) -> Unit)? = null,
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedCoverKey: String? = null,
 ) {
     SearchBookGridItem(
         book = book,
         shelfState = shelfState,
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
-        sharedCoverKey = bookCoverSharedElementKey(book.bookUrl)
+        sharedCoverKey = sharedCoverKey
     )
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun LoadMoreFooter(
-    isLoading: Boolean,
-    errorMsg: String?,
-    isEnd: Boolean,
-    onRetry: () -> Unit
-) {
-
-    LaunchedEffect(isLoading, errorMsg, isEnd) {
-        if (!isLoading && errorMsg == null && !isEnd) {
-            onRetry()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-
-            AnimatedContent(
-                targetState = when {
-                    isLoading -> "加载中…"
-                    errorMsg != null -> "加载失败: $errorMsg"
-                    isEnd -> "已经到底了~"
-                    else -> "我爱你"
-                },
-                label = "FooterTextChange"
-            ) { text ->
-                AppText(
-                    text = text,
-                    color = when {
-                        errorMsg != null -> Color.Red
-                        else -> Color.Gray
-                    },
-                    style = LegadoTheme.typography.bodySmall
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            AnimatedTextButton(
-                isLoading = isLoading,
-                onClick = onRetry,
-                text = if (errorMsg != null) "重试" else "再试一次",
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-    }
-}

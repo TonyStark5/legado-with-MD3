@@ -982,6 +982,7 @@
     <string name="hide_when_status_bar_show">Hide when status bar show</string>
     <string name="reverse_toc">Reverse toc</string>
     <string name="show_discovery">Show Discovery</string>
+    <string name="show_home">Show Homepage</string>
     <string name="style">Style</string>
     <string name="group_style">Group style</string>
     <string name="export_file_name">Export file name</string>
@@ -1006,6 +1007,7 @@
     <string name="pref_anti_alias_summary">Anti-Aliasing when draw picture</string>
     <string name="upload_url">upload URL</string>
     <string name="download_url_rule">downloadUrlRule(downloadUrls)</string>
+    <string name="related_books">Related Books(relatedBooks)</string>
     <string name="clipboard_empty">Clipboard is empty</string>
     <string name="clipboard_empty_or_invalid">Clipboard is empty or has an invalid format</string>
     <string name="invalid_format">Invalid format</string>
@@ -1654,6 +1656,11 @@
 
     <!-- Missing strings -->
     <string name="cover_info_orientation">Cover orientation</string>
+    <string name="network_book_badge_setting">Network Book Badge</string>
+    <string name="filter_show_all">Show All</string>
+    <string name="filter_hide_in_shelf">Hide Same Source Books in Shelf</string>
+    <string name="filter_hide_same_name_author">Hide Non-Same Source Books in Shelf</string>
+    <string name="filter_show_not_in_shelf_only">Show Only Books Not in Shelf</string>
     <string name="follow_read_background">Follow background</string>
     <string name="heading_spacing">Heading spacing</string>
     <string name="layout_setting">Layout settings</string>
@@ -1680,6 +1687,38 @@
     <string name="download_setting">Download</string>
     <string name="image_cache">Image Cache</string>
     <string name="network">Network</string>
+
+    <!-- Translation -->
+    <string name="translation_config">Translation Settings</string>
+    <string name="llm_translate_enabled">Enable Chapter Translation</string>
+    <string name="translation_provider">Translation Provider</string>
+    <string name="llm_provider">Provider</string>
+    <string name="openai_config">OpenAI Configuration</string>
+    <string name="llm_base_url">Base URL</string>
+    <string name="llm_api_key">API Key</string>
+    <string name="llm_model">Model</string>
+    <string name="translation_options">Translation Options</string>
+    <string name="llm_target_language">Target Language</string>
+    <string name="llm_max_chars_per_chunk">Max Chars Per Chunk</string>
+    <string name="llm_concurrent_chunks">Concurrent Chunks</string>
+    <string name="llm_retry_count">Retry Count</string>
+    <string name="translation_prompt">Translation Prompt</string>
+    <string name="llm_prompt">Prompt</string>
+    <string name="translate_chapter">Translate Chapter</string>
+    <string name="show_original">Show Original</string>
+    <string name="retranslate_chapter">Retranslate Chapter</string>
+    <string name="retranslate_confirm">This will delete the existing translation and re-translate. Continue?</string>
+    <string name="translation_in_progress">Translating: %1$d%%</string>
+    <string name="translation_failed">Translation failed: %1$s</string>
+    <string name="no_translation_cache">No translation cache</string>
+    <string name="delete_translation_cache">Delete Translation Cache</string>
+    <string name="translation_cache_size">Cache Size: %1$s</string>
+    <string name="clear_translation_cache">Clear Cache</string>
+    <string name="translation_cache">Translation Cache</string>
+    <string name="translate">Translate</string>
+    <string name="return_to_original">Return to Original</string>
+    <string name="translation_progress">Translating %1$d%%</string>
+    <string name="translation_started">Translation started, please wait…</string>
     <string name="homepage_load_more_failed">Failed to load more: %1$s</string>
     <string name="homepage_module_duplicate_infinite">This group already has an infinite loading module</string>
     <string name="homepage_quick_actions">Quick Actions</string>
@@ -1716,6 +1755,11 @@
     <string name="homepage_delete_custom_set_confirm">Are you sure you want to delete this set and all its module copies?</string>
     <string name="homepage_remove_module">Remove Module</string>
     <string name="homepage_remove_module_confirm">Are you sure you want to remove this module from the current set?</string>
+    <string name="homepage_select_from_kinds">Select from Kinds</string>
+    <string name="homepage_select_multiple_kinds">Select multiple kinds</string>
+    <string name="homepage_n_selected">%1$d selected</string>
+    <string name="homepage_select_one_kind">Select one kind</string>
+    <string name="or">OR</string>
     <string name="homepage_add_button_group">Add Button Group</string>
     <string name="homepage_module_title_label">Module Title</string>
     <string name="homepage_custom_title">Custom Title</string>

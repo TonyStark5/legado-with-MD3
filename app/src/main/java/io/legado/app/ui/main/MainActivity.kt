@@ -21,6 +21,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.NavDisplay
 import io.legado.app.BuildConfig
 import io.legado.app.R
@@ -100,8 +101,11 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             context: Context,
             name: String? = null,
             author: String? = null,
-            bookUrl: String
-        ): Intent = MainIntent.createBookInfoIntent(context, name, author, bookUrl)
+            bookUrl: String,
+            origin: String? = null,
+            coverPath: String? = null
+        ): Intent =
+            MainIntent.createBookInfoIntent(context, name, author, bookUrl, origin, coverPath)
 
         fun createExploreShowIntent(
             context: Context,
@@ -174,6 +178,7 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         SharedTransitionLayout {
             NavDisplay(
                 backStack = backStack,
+                sceneStrategies = listOf(SinglePaneSceneStrategy()),
                 transitionSpec = {
                     (slideIntoContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,

@@ -7,8 +7,10 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -24,7 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +48,9 @@ import io.legado.app.ui.config.coverConfig.CoverConfig
 import io.legado.app.ui.theme.LegadoTheme
 import org.koin.compose.koinInject
 import io.legado.app.model.BookCover as BookCoverModel
+
+private const val SharedCoverRadiusCacheMaxSize = 256
+private val sharedCoverRadiusCache = mutableStateMapOf<String, Dp>()
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -77,9 +82,22 @@ fun CoilBookCover(
     }
 
     val hasCustomDefault = !randomPath.isNullOrBlank()
-    var isOnlineCoverLoaded by remember(path, sharedCoverKey, finalPath) {
+    var isOnlineCoverLoaded by remember(finalPath) {
         mutableStateOf(sharedCoverKey != null && finalPath != null)
     }
+
+    LaunchedEffect(finalPath) {
+        if (finalPath == null) {
+            isOnlineCoverLoaded = false
+        }
+    }
+
+    val transitionRadius = rememberSharedCoverTransitionRadius(
+        sharedCoverKey = sharedCoverKey,
+        radius = radius,
+        animatedVisibilityScope = animatedVisibilityScope
+    )
+    val shape = remember(transitionRadius) { RoundedCornerShape(transitionRadius) }
 
     Box(
         modifier = modifier
@@ -90,26 +108,26 @@ fun CoilBookCover(
                         Modifier.sharedElement(
                             sharedContentState = rememberSharedContentState(sharedCoverKey),
                             animatedVisibilityScope = animatedVisibilityScope,
-                            renderInOverlayDuringTransition = true
+                            clipInOverlayDuringTransition = OverlayClip(shape)
                         )
                     } else Modifier
                 }
             )
             .then(
                 if (CoverConfig.coverShowShadow) {
-                    Modifier.shadow(4.dp, RoundedCornerShape(radius))
+                    Modifier.shadow(4.dp, shape)
                 } else Modifier
             )
             .background(
                 if (!hasCustomDefault && !isOnlineCoverLoaded) {
                     LegadoTheme.colorScheme.surfaceContainerLow
                 } else Color.Transparent,
-                RoundedCornerShape(radius)
+                shape
             )
-            .clip(RoundedCornerShape(radius))
+            .clip(shape)
     ) {
-        if (hasCustomDefault && !isOnlineCoverLoaded) {
-            key(randomPath) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (hasCustomDefault && !isOnlineCoverLoaded) {
                 AsyncImage(
                     model = buildCoverImageRequest(
                         context = context,
@@ -124,13 +142,10 @@ fun CoilBookCover(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(radius))
                 )
             }
-        }
 
-        if (finalPath != null) {
-            key(finalPath) {
+            if (finalPath != null) {
                 AsyncImage(
                     model = buildCoverImageRequest(
                         context = context,
@@ -143,9 +158,7 @@ fun CoilBookCover(
                     contentDescription = null,
                     imageLoader = koinInject(),
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(4.dp)),
+                    modifier = Modifier.fillMaxSize(),
                     onSuccess = {
                         isOnlineCoverLoaded = true
                         onLoadFinish?.invoke()
@@ -155,10 +168,10 @@ fun CoilBookCover(
                         onLoadFinish?.invoke()
                     }
                 )
-            }
-        } else {
-            LaunchedEffect(Unit) {
-                onLoadFinish?.invoke()
+            } else {
+                LaunchedEffect(Unit) {
+                    onLoadFinish?.invoke()
+                }
             }
         }
 
@@ -182,6 +195,58 @@ fun CoilBookCover(
     }
 }
 
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun rememberSharedCoverTransitionRadius(
+    sharedCoverKey: String?,
+    radius: Dp,
+    animatedVisibilityScope: AnimatedVisibilityScope?
+): Dp {
+    if (sharedCoverKey == null || animatedVisibilityScope == null) {
+        return radius
+    }
+
+    val transition = animatedVisibilityScope.transition
+    val startRadius = sharedCoverRadiusCache[sharedCoverKey] ?: radius
+    val animatedRadiusValue by transition.animateFloat(
+        label = "book-cover-corner-radius"
+    ) { state ->
+        if (state == EnterExitState.Visible) radius.value else startRadius.value
+    }
+
+    LaunchedEffect(
+        sharedCoverKey,
+        radius,
+        transition.currentState,
+        transition.targetState
+    ) {
+        if (
+            transition.currentState == EnterExitState.Visible &&
+            transition.targetState == EnterExitState.Visible
+        ) {
+            sharedCoverRadiusCache[sharedCoverKey] = radius
+            if (sharedCoverRadiusCache.size > SharedCoverRadiusCacheMaxSize) {
+                sharedCoverRadiusCache.keys
+                    .firstOrNull { it != sharedCoverKey }
+                    ?.let(sharedCoverRadiusCache::remove)
+            }
+        }
+    }
+
+    return animatedRadiusValue.dp
+}
+
+/**
+ * Determine if text is primarily Latin-script.
+ * Returns true if more than 30% of characters are Latin letters.
+ */
+private fun isLatinBasedText(text: String?): Boolean {
+    if (text.isNullOrBlank()) return false
+    val latinRatio = text.count { it in 'A'..'Z' || it in 'a'..'z' }.toFloat() / text.length
+    return latinRatio > 0.3f
+}
+
 @Composable
 private fun CoverTextOverlay(
     name: String?,
@@ -200,7 +265,9 @@ private fun CoverTextOverlay(
         if (isNight) CoverConfig.coverTextColorN else CoverConfig.coverTextColor
     }
     val shadowColor = if (isNight) CoverConfig.coverShadowColorN else CoverConfig.coverShadowColor
-    val isHorizontal = CoverConfig.coverInfoOrientation == "1"
+    val configIsHorizontal = CoverConfig.coverInfoOrientation == "1"
+    // If text contains Latin letters, force horizontal layout
+    val isHorizontal = configIsHorizontal || isLatinBasedText(name)
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val viewWidth = size.width

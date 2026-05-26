@@ -39,6 +39,7 @@ import io.legado.app.ui.config.downloadCacheConfig.DownloadCacheConfigScreen
 import io.legado.app.ui.config.otherConfig.OtherConfigScreen
 import io.legado.app.ui.config.readConfig.ReadConfigScreen
 import io.legado.app.ui.config.themeConfig.ThemeConfigScreen
+import io.legado.app.ui.config.translation.TranslationConfigScreen
 import io.legado.app.ui.config.themeManage.ThemeManageScreen
 import io.legado.app.ui.rss.article.MainRouteRssSort
 import io.legado.app.ui.rss.article.RssSortRouteScreen
@@ -90,12 +91,15 @@ fun MainActivity.mainEntryProvider(
             onNavigateToBookCacheManage = {
                 onNavigateToRoute(MainRouteBookCacheManage)
             },
-            onNavigateToBookInfo = { name, author, bookUrl ->
+            onNavigateToBookInfo = { name, author, bookUrl, origin, coverPath, sharedCoverKey ->
                 onNavigateToRoute(
                     MainRouteBookInfo(
                         name = name,
                         author = author,
-                        bookUrl = bookUrl
+                        bookUrl = bookUrl,
+                        origin = origin,
+                        coverPath = coverPath,
+                        sharedCoverKey = sharedCoverKey
                     )
                 )
             },
@@ -152,7 +156,8 @@ fun MainActivity.mainEntryProvider(
             onNavigateToCover = { backStack.add(MainRouteSettingsCover) },
             onNavigateToTheme = { backStack.add(MainRouteSettingsTheme) },
             onNavigateToBackup = { backStack.add(MainRouteSettingsBackup) },
-            onNavigateToDownloadCache = { backStack.add(MainRouteSettingsDownloadCache) }
+            onNavigateToDownloadCache = { backStack.add(MainRouteSettingsDownloadCache) },
+            onNavigateToTranslation = { backStack.add(MainRouteSettingsTranslation) }
         )
     }
 
@@ -182,6 +187,10 @@ fun MainActivity.mainEntryProvider(
 
     entry<MainRouteSettingsDownloadCache> {
         DownloadCacheConfigScreen(onBackClick = { onNavigateBack() })
+    }
+
+    entry<MainRouteSettingsTranslation> {
+        TranslationConfigScreen(onBackClick = { onNavigateBack() })
     }
 
     entry<MainRouteSettingsCustomTheme> {
@@ -246,12 +255,15 @@ fun MainActivity.mainEntryProvider(
                 searchViewModel.onIntent(SearchIntent.ClearSearchResults)
                 onNavigateBack()
             },
-            onOpenBookInfo = { name, author, bookUrl ->
+            onOpenBookInfo = { name, author, bookUrl, origin, coverPath, sharedCoverKey ->
                 onNavigateToRoute(
                     MainRouteBookInfo(
                         name = name,
                         author = author,
-                        bookUrl = bookUrl
+                        bookUrl = bookUrl,
+                        origin = origin,
+                        coverPath = coverPath,
+                        sharedCoverKey = sharedCoverKey
                     )
                 )
             },
@@ -395,18 +407,28 @@ fun MainActivity.mainEntryProvider(
             } else null
         }
     ) { route ->
-        val bookInfoViewModel = koinViewModel<BookInfoViewModel>()
+        val bookInfoViewModel = koinViewModel<BookInfoViewModel>(key = route.bookUrl)
         BookInfoRouteScreen(
             bookUrl = route.bookUrl,
+            name = route.name,
+            author = route.author,
+            origin = route.origin,
+            coverPath = route.coverPath,
             viewModel = bookInfoViewModel,
             onBack = { onNavigateBack() },
             onFinish = { _, _ -> onNavigateBack() },
             onOpenSearch = { keyword ->
                 onNavigateToRoute(MainRouteSearch(key = keyword))
             },
+            onNavigateToBookInfo = { name, author, bookUrl, origin, coverPath ->
+                onNavigateToRoute(MainRouteBookInfo(name, author, bookUrl, origin, coverPath))
+            },
+            onNavigateToExploreShow = { title, sourceUrl, exploreUrl ->
+                onNavigateToRoute(MainRouteExploreShow(title, sourceUrl, exploreUrl))
+            },
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = LocalNavAnimatedContentScope.current,
-            sharedCoverKey = bookCoverSharedElementKey(route.bookUrl),
+            sharedCoverKey = route.sharedCoverKey ?: bookCoverSharedElementKey(route.bookUrl),
             onRegisterVariableSetter = { setter ->
                 onRegisterVariableSetter(setter)
             }
@@ -419,12 +441,15 @@ fun MainActivity.mainEntryProvider(
             sourceUrl = route.sourceUrl,
             exploreUrl = route.exploreUrl,
             onBack = { onNavigateBack() },
-            onBookClick = { book ->
+            onBookClick = { book, sharedCoverKey ->
                 onNavigateToRoute(
                     MainRouteBookInfo(
                         name = book.name,
                         author = book.author,
-                        bookUrl = book.bookUrl
+                        bookUrl = book.bookUrl,
+                        origin = book.origin,
+                        coverPath = book.coverUrl,
+                        sharedCoverKey = sharedCoverKey
                     )
                 )
             },

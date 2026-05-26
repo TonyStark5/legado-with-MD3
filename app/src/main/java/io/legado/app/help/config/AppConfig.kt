@@ -306,6 +306,9 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
     val showDiscovery: Boolean
         get() = appCtx.getPrefBoolean(PreferKey.showDiscovery, true)
 
+    val showHome: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.showHome, true)
+
     val showRSS: Boolean
         get() = appCtx.getPrefBoolean(PreferKey.showRss, true)
 
@@ -933,12 +936,6 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
         get() = appCtx.getPrefBoolean(PreferKey.shouldShowExpandButton, false)
         set(value) {
             appCtx.putPrefBoolean(PreferKey.shouldShowExpandButton, value)
-        }
-
-    var exploreFilterState: Int
-        get() = appCtx.getPrefInt(PreferKey.exploreFilterState, 0)
-        set(value) {
-            appCtx.putPrefInt(PreferKey.exploreFilterState, value)
         }
 
     var exploreLayoutState: Int

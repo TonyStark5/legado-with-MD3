@@ -7,6 +7,7 @@ import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.domain.model.BookSearchScope
+import io.legado.app.domain.usecase.AddToBookshelfUseCase
 import io.legado.app.domain.usecase.BookSearchControl
 import io.legado.app.domain.usecase.BookSearchRequest
 import io.legado.app.domain.usecase.BookShelfKey
@@ -15,7 +16,6 @@ import io.legado.app.domain.usecase.SearchBooksUseCase
 import io.legado.app.domain.usecase.SearchRunEvent
 import io.legado.app.help.config.AppConfig
 import io.legado.app.ui.config.otherConfig.OtherConfig
-import io.legado.app.ui.main.bookshelf.BookShelfItem
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.putPrefBoolean
 import kotlinx.coroutines.CancellationException
@@ -38,6 +38,7 @@ class SearchViewModel(
     private val repository: SearchRepository,
     private val resolveBookShelfStateUseCase: ResolveBookShelfStateUseCase,
     private val searchBooksUseCase: SearchBooksUseCase,
+    private val addToBookshelfUseCase: AddToBookshelfUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -71,6 +72,12 @@ class SearchViewModel(
         observeBookshelf()
         observeQueryHistory()
         observeQueryBookshelfHints()
+    }
+
+    fun onAddToShelf(book: SearchBook) {
+        viewModelScope.launch {
+            addToBookshelfUseCase.execute(book)
+        }
     }
 
     fun onIntent(intent: SearchIntent) {
@@ -107,6 +114,9 @@ class SearchViewModel(
                         name = intent.book.name,
                         author = intent.book.author,
                         bookUrl = intent.book.bookUrl,
+                        origin = intent.book.origin,
+                        coverPath = intent.book.coverUrl,
+                        sharedCoverKey = intent.sharedCoverKey,
                     )
                 )
             }
@@ -117,6 +127,9 @@ class SearchViewModel(
                         name = intent.book.name,
                         author = intent.book.author,
                         bookUrl = intent.book.bookUrl,
+                        origin = intent.book.origin,
+                        coverPath = intent.book.getDisplayCover(),
+                        sharedCoverKey = null,
                     )
                 )
             }
