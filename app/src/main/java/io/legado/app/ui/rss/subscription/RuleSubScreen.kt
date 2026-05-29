@@ -4,6 +4,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,7 +19,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.runtime.Composable
@@ -46,8 +47,8 @@ import io.legado.app.ui.widget.components.AppFloatingActionButton
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
+import io.legado.app.ui.widget.components.button.series.SmallPlainButton
 import io.legado.app.ui.widget.components.card.SelectionItemCard
-import io.legado.app.ui.widget.components.checkBox.CheckboxGroupContainer
 import io.legado.app.ui.widget.components.checkBox.CheckboxItem
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.rules.RuleListScaffold
@@ -165,9 +166,11 @@ fun RuleSubScreen(
                             }
                         },
                         trailingAction = {
-                            IconButton(onClick = { showEditDialog = ruleSub }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Edit")
-                            }
+                            SmallPlainButton(
+                                onClick = { showEditDialog = ruleSub },
+                                icon = Icons.Default.Edit,
+                                contentDescription = "Edit"
+                            )
                         },
                         dropdownContent = { dismiss ->
                             RoundDropdownMenuItem(
@@ -242,14 +245,27 @@ fun RuleSubEditDialog(
                     modifier = Modifier.padding(top = 8.dp)
                 )
 
-                CheckboxGroupContainer(columns = 2) {
-                    typeArray.forEachIndexed { index, text ->
-                        item {
-                            CheckboxItem(
-                                title = text,
-                                checked = (index == type),
-                                onCheckedChange = { if (it) type = index }
-                            )
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    typeArray.indices.chunked(2).forEach { indices ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            indices.forEach { index ->
+                                Box(modifier = Modifier.weight(1f)) {
+                                    CheckboxItem(
+                                        title = typeArray[index],
+                                        checked = (index == type),
+                                        onCheckedChange = { if (it) type = index }
+                                    )
+                                }
+                            }
+                            if (indices.size < 2) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }

@@ -114,7 +114,9 @@ import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.SearchBar
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
-import io.legado.app.ui.widget.components.button.SmallOutlinedIconToggleButton
+import io.legado.app.ui.widget.components.button.series.SmallPlainButton
+import io.legado.app.ui.widget.components.button.series.SmallToggleButton
+import io.legado.app.ui.widget.components.button.series.ToggleStyle
 import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.card.TextCard
 import io.legado.app.ui.widget.components.divider.PillHeaderDivider
@@ -557,7 +559,7 @@ fun BookshelfScreen(
                             val showExpandButton by BookshelfConfig.shouldShowExpandButtonState
                             if (showExpandButton) {
                                 Box(modifier = Modifier) {
-                                    SmallOutlinedIconToggleButton(
+                                    SmallToggleButton(
                                         checked = showGroupMenu,
                                         onCheckedChange = {
                                             if (it) {
@@ -566,7 +568,8 @@ fun BookshelfScreen(
                                                 viewModel.dismissOverlay()
                                             }
                                         },
-                                        imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                        style = ToggleStyle.Outlined,
+                                        icon = Icons.AutoMirrored.Filled.FormatListBulleted,
                                         contentDescription = stringResource(R.string.group_manage)
                                     )
                                     RoundDropdownMenu(
@@ -837,15 +840,15 @@ fun BookshelfScreen(
                                         if (this != null) Modifier.skipToLookaheadSize() else Modifier
                                     }
                                 ),
-                            beyondViewportPageCount = 1,
+                            beyondViewportPageCount = 0,
                             key = { if (it < uiState.groups.size) uiState.groups[it].groupId else it }
                         ) { pageIndex ->
                             val group = uiState.groups.getOrNull(pageIndex)
                             if (group != null) {
                                 val isSelectedGroup = group.groupId == uiState.selectedGroupId
-                                val books = uiState.allGroupBooks[group.groupId]
-                                    ?: if (isSelectedGroup) uiState.items
-                                    else persistentListOf()
+                                val books = if (isSelectedGroup) uiState.items
+                                    else uiState.allGroupBooks[group.groupId]
+                                    ?: persistentListOf()
                                 val canReorderBooks = isEditMode &&
                                         !uiState.isSearch &&
                                         (group.bookSort.takeIf { it >= 0 }
@@ -1049,18 +1052,12 @@ private fun BookshelfTopBar(
                     query = uiState.searchKey,
                     onQueryChange = onSearchQueryChange,
                     onSearch = onSearchSubmit,
-                    placeholder = stringResource(R.string.input_search_key),
-                    leadingIcon = {
-                        AppIcon(
-                            imageVector = AppIcons.Search,
-                            contentDescription = null
-                        )
-                    },
                     trailingIcon = {
                         if (uiState.searchKey.isNotEmpty()) {
-                            TopBarActionButton(
+                            SmallPlainButton(
+                                modifier = Modifier.padding(horizontal = 4.dp),
                                 onClick = onClearSearch,
-                                imageVector = AppIcons.Close,
+                                icon = AppIcons.Close,
                                 contentDescription = stringResource(R.string.clear)
                             )
                         }

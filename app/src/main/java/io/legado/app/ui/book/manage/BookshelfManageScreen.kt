@@ -8,6 +8,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -82,8 +83,7 @@ import io.legado.app.ui.widget.components.AppFloatingActionButtonMenu
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.FabMenuItem
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
-import io.legado.app.ui.widget.components.button.SmallTonalIconButton
-import io.legado.app.ui.widget.components.button.SmallTonalTextButton
+import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.card.ReorderableSelectionItem
 import io.legado.app.ui.widget.components.card.SelectionItemCard
@@ -188,6 +188,7 @@ private fun BookshelfManageScreen(
     var deleteOriginalBookFile by remember { mutableStateOf(state.deleteBookOriginal) }
     val exportBookPathKey = remember { "exportBookPath" }
     val exportTypes = remember { arrayListOf("txt", "epub") }
+    val commonCharsets = remember { listOf("UTF-8", "GBK", "GB2312", "GB18030", "Big5", "UTF-16") }
     val focusRequester = remember { FocusRequester() }
     val exportFolderText = stringResource(R.string.export_folder)
     val exportAllText = stringResource(R.string.export_all)
@@ -469,6 +470,7 @@ private fun BookshelfManageScreen(
                 searchKey = ""
             }
         },
+        onClearSelection = clearSelection,
         onSearchQueryChange = { searchKey = it },
         searchPlaceholder = "筛选书名/作者/书源/分组",
         topBarActions = {
@@ -496,6 +498,7 @@ private fun BookshelfManageScreen(
             }
         },
         dropDownMenuContent = { dismiss ->
+            var showCharsetMenu by remember { mutableStateOf(false) }
             RoundDropdownMenuItem(
                 text = stringResource(R.string.download_all),
                 onClick = {
@@ -531,14 +534,37 @@ private fun BookshelfManageScreen(
                     showExportTypeDialog = true
                 }
             )
-            RoundDropdownMenuItem(
-                text = "${stringResource(R.string.export_charset)} (${state.exportConfig.exportCharset})",
-                onClick = {
-                    dismiss()
-                    exportCharsetInput = state.exportConfig.exportCharset
-                    showCharsetDialog = true
+            Box {
+                RoundDropdownMenuItem(
+                    text = "${stringResource(R.string.export_charset)} (${state.exportConfig.exportCharset})",
+                    onClick = { showCharsetMenu = true }
+                )
+                RoundDropdownMenu(
+                    expanded = showCharsetMenu,
+                    onDismissRequest = { showCharsetMenu = false }
+                ) { subDismiss ->
+                    commonCharsets.forEach { charset ->
+                        RoundDropdownMenuItem(
+                            text = charset,
+                            isSelected = state.exportConfig.exportCharset == charset,
+                            onClick = {
+                                viewModel.dispatch(BookshelfManageScreenIntent.SetExportCharset(charset))
+                                subDismiss()
+                                dismiss()
+                            }
+                        )
+                    }
+                    PillDivider()
+                    RoundDropdownMenuItem(
+                        text = "自定义...",
+                        onClick = {
+                            subDismiss()
+                            exportCharsetInput = state.exportConfig.exportCharset
+                            showCharsetDialog = true
+                        }
+                    )
                 }
-            )
+            }
             PillDivider()
             RoundDropdownMenuItem(
                 text = "替换净化",
@@ -768,32 +794,32 @@ private fun BookshelfManageScreen(
                                             }
                                         )
                                     }
-                                    SmallTonalIconButton(
+                                    SmallTonalButton(
                                         onClick = {
                                             if (!book.isLocal) {
                                                 viewModel.dispatch(BookshelfManageScreenIntent.ToggleBookDownload(book))
                                             }
                                         },
-                                        imageVector = if (isDownloading) Icons.Default.Stop else Icons.Default.Download,
+                                        icon = if (isDownloading) Icons.Default.Stop else Icons.Default.Download,
                                         contentDescription = "download"
                                     )
-                                    SmallTonalIconButton(
+                                    SmallTonalButton(
                                         onClick = { exportBook(book) },
-                                        imageVector = Icons.Default.Upload,
+                                        icon = Icons.Default.Upload,
                                         contentDescription = "upload"
                                     )
-                                    SmallTonalIconButton(
+                                    SmallTonalButton(
                                         onClick = {
                                             pendingMoveGroupBookUrl = book.bookUrl
                                             groupPickerCurrentGroupId = book.group.coerceAtLeast(0L)
                                             showGroupSelectSheet = true
                                         },
-                                        imageVector = Icons.Default.Bookmarks,
+                                        icon = Icons.Default.Bookmarks,
                                         contentDescription = "group"
                                     )
-                                    SmallTonalIconButton(
+                                    SmallTonalButton(
                                         onClick = { moreMenuBookUrl = book.bookUrl },
-                                        imageVector = Icons.Default.MoreVert,
+                                        icon = Icons.Default.MoreVert,
                                         contentDescription = "more"
                                     )
                                 }
@@ -1288,12 +1314,12 @@ private fun BookSourcePickerSheet(
         onDismissRequest = onDismissRequest,
         title = title,
         endAction = {
-            SmallTonalTextButton(
-                text = stringResource(android.R.string.ok),
-                imageVector = Icons.Default.PlayArrow,
+            SmallTonalButton(
                 onClick = {
                     onConfirm(selectedSources.mapNotNull { it.getBookSource() })
-                }
+                },
+                icon = Icons.Default.PlayArrow,
+                text = stringResource(android.R.string.ok)
             )
         }
     ) {
@@ -1402,17 +1428,17 @@ private fun BatchChangePreviewSheet(
         onDismissRequest = onDismissRequest,
         title = "批量换源预览",
         startAction = {
-            SmallTonalTextButton(
-                text = "新增全部",
-                imageVector = Icons.Default.Add,
+            SmallTonalButton(
                 onClick = onAddAllToShelf,
+                icon = Icons.Default.Add,
+                text = "新增全部"
             )
         },
         endAction = {
-            SmallTonalTextButton(
-                text = "迁移全部",
-                imageVector = Icons.Default.PlayArrow,
+            SmallTonalButton(
                 onClick = onMigrateAll,
+                icon = Icons.Default.PlayArrow,
+                text = "迁移全部"
             )
         }
     ) { items ->
@@ -1498,30 +1524,30 @@ private fun BatchChangePreviewRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                SmallTonalTextButton(
-                    imageVector = Icons.Default.Search,
+                SmallTonalButton(
                     onClick = { onManualSearch(item.oldBook) },
+                    icon = Icons.Default.Search
                 )
-                SmallTonalTextButton(
-                    text = "不迁移",
-                    imageVector = Icons.Default.Clear,
+                SmallTonalButton(
                     onClick = { onSkip(item.oldBook.bookUrl) },
+                    icon = Icons.Default.Clear,
+                    text = "不迁移"
                 )
-                SmallTonalTextButton(
-                    text = "迁移",
-                    imageVector = Icons.Default.PlayArrow,
+                SmallTonalButton(
                     onClick = { onMigrate(item.oldBook.bookUrl) },
+                    icon = Icons.Default.PlayArrow,
+                    text = "迁移"
                 )
-                SmallTonalTextButton(
-                    text = "新增",
-                    imageVector = Icons.Default.Add,
+                SmallTonalButton(
                     onClick = { onAddToShelf(item.oldBook.bookUrl) },
+                    icon = Icons.Default.Add,
+                    text = "新增"
                 )
                 if (item.candidates.size > 1) {
-                    SmallTonalTextButton(
-                        text = "查看其他源信息",
-                        imageVector = Icons.Default.Info,
+                    SmallTonalButton(
                         onClick = { onShowOtherSources(item) },
+                        icon = Icons.Default.Info,
+                        text = "查看其他源信息"
                     )
                 }
             }
@@ -1605,9 +1631,9 @@ private fun OtherSourceOptionsSheet(
                     isSelected = index == currentItem.selectedCandidateIndex,
                     onToggleSelection = { onSelect(currentItem.oldBook.bookUrl, index) },
                     trailingAction = {
-                        SmallTonalIconButton(
+                        SmallTonalButton(
                             onClick = { onOpenBook(candidate.book) },
-                            imageVector = Icons.Default.Info,
+                            icon = Icons.Default.Info,
                             contentDescription = null,
                         )
                     },
