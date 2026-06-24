@@ -152,8 +152,8 @@ fun TocScreen(
 
     var editingBookmark by remember { mutableStateOf<Bookmark?>(null) }
 
-    val useReplace = viewModel.useReplace
-    val showWordCount = viewModel.showWordCount
+    val useReplace = state.useReplace
+    val showWordCount = state.showWordCount
     val bookmarkManagementTitle = stringResource(R.string.bookmark_management)
     val locateCurrentReadingText = stringResource(R.string.locate_current_reading)
     val moveToTopText = stringResource(R.string.move_to_top)
@@ -363,16 +363,25 @@ fun TocScreen(
                             RoundDropdownMenuItem(
                                 text = stringResource(R.string.use_replace_rule),
                                 isSelected = useReplace,
-                                onClick = { viewModel.toggleUseReplace() }
+                                onClick = {
+                                    dismiss()
+                                    viewModel.toggleUseReplace()
+                                }
                             )
                             RoundDropdownMenuItem(
                                 text = stringResource(R.string.show_word_count),
                                 isSelected = showWordCount,
-                                onClick = { viewModel.toggleShowWordCount() }
+                                onClick = {
+                                    dismiss()
+                                    viewModel.toggleShowWordCount()
+                                }
                             )
                             RoundDropdownMenuItem(
                                 text = stringResource(R.string.reverse_toc),
-                                onClick = { viewModel.reverseToc() }
+                                onClick = {
+                                    dismiss()
+                                    viewModel.reverseToc()
+                                }
                             )
                             PillDivider()
                             RoundDropdownMenuItem(
@@ -677,7 +686,7 @@ fun ChapterListContent(
                             .animateItem()
                             .fillMaxWidth(),
                         item = uiItem,
-                        showWordCount = viewModel.showWordCount,
+                        showWordCount = state.showWordCount,
                         onClick = {
                             if (state.selectedIds.isNotEmpty())
                                 viewModel.toggleSelection(uiItem.id)

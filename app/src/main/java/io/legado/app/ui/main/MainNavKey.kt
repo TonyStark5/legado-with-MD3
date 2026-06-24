@@ -34,6 +34,9 @@ data object MainRouteSettingsCustomTheme : MainRoute
 data object MainRouteSettingsThemeManage : MainRoute
 
 @Serializable
+data object MainRouteSettingsLabConfig : MainRoute
+
+@Serializable
 data object MainRouteSettingsDownloadCache : MainRoute
 
 @Serializable
@@ -56,6 +59,14 @@ data class MainRouteCache(val groupId: Long) : MainRoute
 
 @Serializable
 data object MainRouteBookCacheManage : MainRoute
+
+@Serializable
+data class MainRouteReadBook(
+    val bookUrl: String? = null,
+    val readAloud: Boolean = false,
+    val inBookshelf: Boolean = true,
+    val chapterChanged: Boolean = false,
+) : MainRoute
 
 @Serializable
 data class MainRouteSearch(
@@ -87,6 +98,13 @@ data class MainRouteExploreShow(
 ) : MainRoute
 
 @Serializable
+data class MainRouteSearchContent(
+    val bookUrl: String,
+    val searchWord: String? = null,
+    val searchResultIndex: Int = 0,
+) : MainRoute
+
+@Serializable
 data object MainRouteAbout : MainRoute
 
 object MainRouteConst {
@@ -98,13 +116,16 @@ object MainRouteConst {
     const val ROUTE_SETTINGS_THEME = "settings/theme"
     const val ROUTE_SETTINGS_BACKUP = "settings/backup"
     const val ROUTE_SETTINGS_CUSTOM_THEME = "settings/custom_theme"
+    const val ROUTE_SETTINGS_LAB_CONFIG = "settings/lab_config"
     const val ROUTE_SETTINGS_DOWNLOAD_CACHE = "settings/download_cache"
     const val ROUTE_SETTINGS_TRANSLATION = "settings/translation"
     const val ROUTE_IMPORT_LOCAL = "import/local"
     const val ROUTE_IMPORT_REMOTE = "import/remote"
     const val ROUTE_CACHE = "cache"
     const val ROUTE_BOOK_CACHE_MANAGE = "book/cache/manage"
+    const val ROUTE_READ_BOOK = "book/read"
     const val ROUTE_SEARCH = "search"
+    const val ROUTE_SEARCH_CONTENT = "book/searchContent"
     const val ROUTE_BOOK_INFO = "book/info"
     const val ROUTE_EXPLORE_SHOW = "explore/show"
     const val ROUTE_RSS_SORT = "rss/sort"

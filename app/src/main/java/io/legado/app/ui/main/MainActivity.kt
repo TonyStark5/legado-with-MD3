@@ -5,6 +5,9 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import android.text.format.DateUtils
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -17,10 +20,15 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.NavDisplay
 import io.legado.app.BuildConfig
@@ -38,12 +46,14 @@ import io.legado.app.lib.dialogs.alert
 import io.legado.app.service.WebService
 import io.legado.app.ui.about.CrashLogsDialog
 import io.legado.app.ui.about.UpdateDialog
-import io.legado.app.ui.book.read.ReadBookActivity
+import io.legado.app.ui.book.read.ReadBookInputHandler
+import io.legado.app.ui.book.read.page.entities.PageDirection
+import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.ui.config.themeConfig.ThemeConfig
 import io.legado.app.ui.welcome.WelcomeActivity
 import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.dialog.VariableDialog
-import io.legado.app.utils.getPrefBoolean
+import io.legado.app.utils.LogUtils
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivity
 import kotlinx.coroutines.Dispatchers.IO
@@ -60,6 +70,15 @@ import kotlin.coroutines.suspendCoroutine
 open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
 
     companion object {
+        private const val KEY_RESTORE_READ_ROUTE = "restoreReadRoute"
+        private const val KEY_RESTORE_READ_BOOK_URL = "restoreReadBookUrl"
+        private const val KEY_RESTORE_READ_ALOUD = "restoreReadAloud"
+        private const val KEY_RESTORE_READ_IN_BOOKSHELF = "restoreReadInBookshelf"
+        private const val KEY_RESTORE_READ_CHAPTER_CHANGED = "restoreReadChapterChanged"
+
+        @Volatile
+        var hasActiveReadBookRoute: Boolean = false
+
         fun createLauncherIntent(context: Context): Intent =
             MainIntent.createLauncherIntent(context)
 
@@ -91,6 +110,20 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         fun createBookCacheManageIntent(context: Context): Intent =
             MainIntent.createBookCacheManageIntent(context)
 
+        fun createReadBookIntent(
+            context: Context,
+            bookUrl: String? = null,
+            readAloud: Boolean = false,
+            inBookshelf: Boolean = true,
+            chapterChanged: Boolean = false,
+        ): Intent = MainIntent.createReadBookIntent(
+            context = context,
+            bookUrl = bookUrl,
+            readAloud = readAloud,
+            inBookshelf = inBookshelf,
+            chapterChanged = chapterChanged,
+        )
+
         fun createSearchIntent(
             context: Context,
             key: String? = null,
@@ -118,9 +151,16 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
     private val viewModel by viewModel<MainViewModel>()
     private val routeEvents = MutableSharedFlow<NavKey>(extraBufferCapacity = 1)
     private var bookInfoVariableSetter: ((String, String?) -> Unit)? = null
+    private var shouldApplyDefaultToRead = true
+    private var restoredReadBookRoute: MainRouteReadBook? = null
+    private var latestBackStack: List<NavKey> = emptyList()
+    internal var activeReadBookInputHandler: ReadBookInputHandler? = null
+    internal var activeReadBookRoute: MainRouteReadBook? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
+        shouldApplyDefaultToRead = savedInstanceState == null
+        restoredReadBookRoute = savedInstanceState?.restoreReadBookRoute()
         super.onCreate(savedInstanceState)
 
         if (checkStartupRoute()) return
@@ -149,6 +189,7 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (!intent.hasExplicitStartRoute()) return
         routeEvents.tryEmit(MainNavigator.resolveStartRoute(intent))
     }
 
@@ -167,7 +208,27 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             else -> false
         }
 
-        val backStack = rememberNavBackStack(MainNavigator.resolveStartRoute(intent))
+        val startRoutes = remember {
+            val resolved = MainNavigator.resolveStartRoute(intent)
+            val hasExplicitStartRoute = intent?.hasExplicitStartRoute() == true
+            when {
+                !hasExplicitStartRoute && restoredReadBookRoute != null -> {
+                    arrayOf(MainRouteHome, restoredReadBookRoute!!)
+                }
+                shouldApplyDefaultToRead && OtherConfig.defaultToRead && resolved == MainRouteHome -> {
+                    arrayOf(MainRouteHome, MainRouteReadBook())
+                }
+                else -> {
+                    arrayOf(resolved)
+                }
+            }
+        }
+        latestBackStack = startRoutes.toList()
+        val backStack = rememberNavBackStack(*startRoutes)
+
+        SideEffect {
+            shouldApplyDefaultToRead = false
+        }
 
         LaunchedEffect(backStack) {
             routeEvents.collect { route ->
@@ -175,9 +236,21 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             }
         }
 
+        LaunchedEffect(backStack) {
+            snapshotFlow { backStack.toList() }
+                .collect {
+                    latestBackStack = it
+                    MainNavigator.onBackStackChanged()
+                }
+        }
+
         SharedTransitionLayout {
             NavDisplay(
                 backStack = backStack,
+                entryDecorators = listOf(
+                    rememberSaveableStateHolderNavEntryDecorator(),
+                    rememberViewModelStoreNavEntryDecorator(),
+                ),
                 sceneStrategies = listOf(SinglePaneSceneStrategy()),
                 transitionSpec = {
                     (slideIntoContainer(
@@ -249,10 +322,6 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
                 startActivity<WelcomeActivity>()
                 finish()
                 true
-            }
-            getPrefBoolean(PreferKey.defaultToRead) -> {
-                startActivity<ReadBookActivity>()
-                false
             }
             else -> false
         }
@@ -341,6 +410,75 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         if (AppConfig.autoRefreshBook) {
             outState.putBoolean("isAutoRefreshedBook", true)
         }
+        val readRoute = latestBackStack.lastOrNull() as? MainRouteReadBook
+            ?: activeReadBookRoute
+        if (readRoute != null) {
+            outState.putBoolean(KEY_RESTORE_READ_ROUTE, true)
+            outState.putString(KEY_RESTORE_READ_BOOK_URL, readRoute.bookUrl)
+            outState.putBoolean(KEY_RESTORE_READ_ALOUD, readRoute.readAloud)
+            outState.putBoolean(KEY_RESTORE_READ_IN_BOOKSHELF, readRoute.inBookshelf)
+            outState.putBoolean(KEY_RESTORE_READ_CHAPTER_CHANGED, readRoute.chapterChanged)
+        }
+    }
+
+    private fun Bundle.restoreReadBookRoute(): MainRouteReadBook? {
+        if (!getBoolean(KEY_RESTORE_READ_ROUTE, false)) return null
+        return MainRouteReadBook(
+            bookUrl = getString(KEY_RESTORE_READ_BOOK_URL),
+            readAloud = getBoolean(KEY_RESTORE_READ_ALOUD, false),
+            inBookshelf = getBoolean(KEY_RESTORE_READ_IN_BOOKSHELF, true),
+            chapterChanged = getBoolean(KEY_RESTORE_READ_CHAPTER_CHANGED, false),
+        )
+    }
+
+    private fun Intent.hasExplicitStartRoute(): Boolean {
+        return hasExtra(MainIntent.EXTRA_START_ROUTE)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val keyCode = event.keyCode
+        val isDown = event.action == KeyEvent.ACTION_DOWN
+        if (keyCode == KeyEvent.KEYCODE_MENU && isDown) {
+            activeReadBookInputHandler?.toggleMenu()
+            if (activeReadBookInputHandler != null) return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        val controller = activeReadBookInputHandler ?: return super.onGenericMotionEvent(event)
+        if (0 != (event.source and InputDevice.SOURCE_CLASS_POINTER) &&
+            event.action == MotionEvent.ACTION_SCROLL
+        ) {
+            val axisValue = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            LogUtils.d("onGenericMotionEvent", "axisValue = $axisValue")
+            controller.mouseWheelPage(
+                if (axisValue < 0.0f) PageDirection.NEXT else PageDirection.PREV
+            )
+            return true
+        }
+        if (0 != (event.source and InputDevice.SOURCE_CLASS_JOYSTICK) &&
+            event.action == MotionEvent.ACTION_MOVE
+        ) {
+            val yAxis = event.getAxisValue(MotionEvent.AXIS_Y)
+            if (kotlin.math.abs(yAxis) > 0.5f) {
+                controller.handleKeyPage(
+                    if (yAxis > 0) PageDirection.NEXT else PageDirection.PREV
+                )
+                return true
+            }
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (activeReadBookInputHandler?.onKeyDown(keyCode, event) == true) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (activeReadBookInputHandler?.onKeyUp(keyCode, event) == true) return true
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onDestroy() {

@@ -17,6 +17,7 @@ import io.legado.app.lib.webdav.WebDav
 import io.legado.app.lib.webdav.WebDavException
 import io.legado.app.lib.webdav.WebDavFile
 import io.legado.app.model.remote.RemoteBookWebDav
+import io.legado.app.ui.config.backupConfig.BackupConfig
 import io.legado.app.utils.AlphanumComparator
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.GSON
@@ -25,7 +26,6 @@ import io.legado.app.utils.UrlUtil
 import io.legado.app.utils.compress.ZipUtils
 import io.legado.app.utils.defaultSharedPreferences
 import io.legado.app.utils.fromJsonObject
-import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isJson
 import io.legado.app.utils.normalizeFileName
 import kotlinx.coroutines.CoroutineDispatcher
@@ -253,9 +253,9 @@ class WebDavManager(
         }
         appDb.bookDao.all.forEach { book ->
             val progressFileName = getProgressFileName(book.name, book.author)
-            val webDavFile = map[progressFileName] ?: return
+            val webDavFile = map[progressFileName] ?: return@forEach
             if (webDavFile.lastModify <= book.syncTime) {
-                return
+                return@forEach
             }
             getBookProgress(book)?.let { bookProgress ->
                 if (bookProgress.durChapterIndex > book.durChapterIndex
@@ -287,11 +287,11 @@ class WebDavManager(
 
     private fun readConfig(): WebDavConfig {
         return WebDavConfig(
-            url = appCtx.getPrefString(PreferKey.webDavUrl, "") ?: "",
-            account = appCtx.getPrefString(PreferKey.webDavAccount, "") ?: "",
-            password = appCtx.getPrefString(PreferKey.webDavPassword, "") ?: "",
-            dir = appCtx.getPrefString(PreferKey.webDavDir, "legado") ?: "legado",
-            deviceName = appCtx.getPrefString(PreferKey.webDavDeviceName, "") ?: ""
+            url = BackupConfig.webDavUrl,
+            account = BackupConfig.webDavAccount,
+            password = BackupConfig.webDavPassword,
+            dir = BackupConfig.webDavDir,
+            deviceName = BackupConfig.webDavDeviceName
         )
     }
 

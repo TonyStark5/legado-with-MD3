@@ -13,7 +13,6 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.withSave
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import io.legado.app.ui.config.coverConfig.CoverConfig
 import io.legado.app.ui.theme.LegadoTheme
 import org.koin.compose.koinInject
@@ -59,6 +59,7 @@ fun BookCoverImage(
     path: String?,
     modifier: Modifier = Modifier,
     sourceOrigin: String? = null,
+    memoryCacheKey: String? = null,
     ignoreUseDefaultCover: Boolean = false,
     showLoadingPlaceholder: Boolean = true,
     contentScale: ContentScale = ContentScale.Crop,
@@ -66,9 +67,10 @@ fun BookCoverImage(
     onSuccess: (() -> Unit)? = null,
     onError: (() -> Unit)? = null,
     sharedCoverKey: String? = null,
+    requestBuilder: ImageRequest.Builder.() -> Unit = {},
 ) {
     val context = LocalContext.current
-    val isNight = isSystemInDarkTheme()
+    val isNight = LegadoTheme.isDark
 
     val useDefault = !ignoreUseDefaultCover && CoverConfig.useDefaultCover
     val finalPath = if (useDefault) null else path
@@ -81,9 +83,7 @@ fun BookCoverImage(
     }
 
     val hasCustomDefault = !randomPath.isNullOrBlank()
-    var isOnlineCoverLoaded by remember(finalPath) {
-        mutableStateOf(sharedCoverKey != null && finalPath != null)
-    }
+    var isOnlineCoverLoaded by remember(finalPath) { mutableStateOf(false) }
 
     LaunchedEffect(finalPath) {
         if (finalPath == null) {
@@ -117,7 +117,8 @@ fun BookCoverImage(
                     sourceOrigin = sourceOrigin,
                     loadOnlyWifi = CoverConfig.loadCoverOnlyWifi,
                     crossfade = showLoadingPlaceholder,
-                    memoryCacheKey = finalPath,
+                    memoryCacheKey = memoryCacheKey ?: finalPath,
+                    configure = requestBuilder,
                 ),
                 contentDescription = null,
                 imageLoader = koinInject(),
@@ -159,7 +160,7 @@ fun CoilBookCover(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedCoverKey: String? = null,
 ) {
-    val isNight = isSystemInDarkTheme()
+    val isNight = LegadoTheme.isDark
 
     val useDefault = !ignoreUseDefaultCover && CoverConfig.useDefaultCover
     val finalPath = if (useDefault) null else path
@@ -172,9 +173,7 @@ fun CoilBookCover(
     }
 
     val hasCustomDefault = !randomPath.isNullOrBlank()
-    var isOnlineCoverLoaded by remember(finalPath) {
-        mutableStateOf(sharedCoverKey != null && finalPath != null)
-    }
+    var isOnlineCoverLoaded by remember(finalPath) { mutableStateOf(false) }
 
     LaunchedEffect(finalPath) {
         if (finalPath == null) {

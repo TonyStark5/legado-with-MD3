@@ -82,10 +82,6 @@ object PreferKey {
     const val exportNoChapterName = "exportNoChapterName"
     const val exportType = "exportType"
     const val exportPictureFile = "exportPictureFile"
-    const val changeSourceCheckAuthor = "changeSourceCheckAuthor"
-    const val changeSourceLoadToc = "changeSourceLoadToc"
-    const val changeSourceLoadInfo = "changeSourceLoadInfo"
-    const val changeSourceLoadWordCount = "changeSourceLoadWordCount"
     const val chineseConverterType = "chineseConverterType"
     const val launcherIcon = "launcherIcon"
     const val textSelectAble = "selectText"
@@ -102,7 +98,9 @@ object PreferKey {
     const val replaceEnableDefault = "replaceEnableDefault"
     const val showBrightnessView = "showBrightnessView"
     const val useUnderline = "useUnderline"
-    const val regexColorRules = "regexColorRules"
+    const val highlightRuleDialog = "highlightRuleDialog"
+    const val highlightRuleBookTitle = "highlightRuleBookTitle"
+    const val highlightRuleBracketNote = "highlightRuleBracketNote"
     const val adaptSpecialStyle = "adaptSpecialStyle"
     const val autoClearExpired = "autoClearExpired"
     const val autoChangeSource = "autoChangeSource"
@@ -134,6 +132,8 @@ object PreferKey {
     const val brightness = "brightness"
     const val nightBrightness = "nightBrightness"
     const val expandTextMenu = "expandTextMenu"
+    const val showSelectMenuIcon = "showSelectMenuIcon"
+    const val textSelectMenuFilter = "textSelectMenuFilter"
     const val doublePageHorizontal = "doubleHorizontalPage"
     const val readUrlOpenInBrowser = "readUrlInBrowser"
     const val defaultBookTreeUri = "defaultBookTreeUri"
@@ -161,6 +161,7 @@ object PreferKey {
     const val clearWebViewData = "clearWebViewData"
     const val onlyLatestBackup = "onlyLatestBackup"
     const val brightnessVwPos = "brightnessVwPos"
+    const val brightnessAuto = "brightnessAuto"
     const val shrinkDatabase = "shrinkDatabase"
     const val batchChangeSourceDelay = "batchChangeSourceDelay"
     const val openBookInfoByClickTitle = "openBookInfoByClickTitle"
@@ -247,7 +248,6 @@ object PreferKey {
     const val mangaClickActionBR = "mangaClickActionBottomRight"
     const val mangaLongClick = "mangaLongClick"
     const val mangaBackground = "mangaBackground"
-    const val permissionChecked = "permissionChecked"
     const val notificationsPost = "notificationsPost"
     const val ignoreBatteryPermission = "ignoreBatteryPermission"
     const val paddingDisplayCutouts = "paddingDisplayCutouts"
@@ -288,6 +288,39 @@ object PreferKey {
     const val isPredictiveBackEnabled = "isPredictiveBackEnabled"
     const val replaceSortMode = "desc"
     const val readBarStyle = "readBarStyle"
+    const val readMenuBgColor = "readMenuBgColor"
+    const val readMenuAccentColor = "readMenuAccentColor"
+    const val readMenuContainerColor = "readMenuContainerColor"
+    const val readMenuBgColorNight = "readMenuBgColorNight"
+    const val readMenuAccentColorNight = "readMenuAccentColorNight"
+    const val readMenuContainerColorNight = "readMenuContainerColorNight"
+    const val readMenuColorMode = "readMenuColorMode"
+    const val readMenuIconShowText = "readMenuIconShowText"
+    const val readMenuIconStyle = "readMenuIconStyle"
+    const val readMenuIconItemsPerRow = "readMenuIconItemsPerRow"
+    const val readMenuIconRowCount = "readMenuIconRowCount"
+    const val readMenuBottomCornerRadius = "readMenuBottomCornerRadius"
+    const val readMenuFloatingBottomBar = "readMenuFloatingBottomBar"
+    const val readMenuTopBarBlurMode = "readMenuTopBarBlurMode"
+    const val readMenuBottomBarBlurMode = "readMenuBottomBarBlurMode"
+    const val readMenuTopBarLiquidGlassButtons = "readMenuTopBarLiquidGlassButtons"
+    const val readMenuTopBarTitleCapsule = "readMenuTopBarTitleCapsule"
+    const val readMenuBottomBarLiquidGlassButtons = "readMenuBottomBarLiquidGlassButtons"
+    const val readMenuTopBarBlurStyle = "readMenuTopBarBlurStyle"
+    const val readMenuBottomBarBlurStyle = "readMenuBottomBarBlurStyle"
+    const val readMenuBlurRadius = "readMenuBlurRadius"
+    const val readMenuBlurAlpha = "readMenuBlurAlpha"
+    const val readMenuBlurColor = "readMenuBlurColor"
+    const val readMenuPaletteStyle = "readMenuPaletteStyle"
+    const val readMenuLensRadius = "readMenuLensRadius"
+    const val readMenuBorderWidth = "readMenuBorderWidth"
+    const val readMenuBorderColor = "readMenuBorderColor"
+    const val readMenuBorderColorNight = "readMenuBorderColorNight"
+    const val readMenuCustomIcons = "readMenuCustomIcons"
+    const val titleBarCustomIcons = "titleBarCustomIcons"
+    const val titleBarIconPosition = "titleBarIconPosition"
+    const val showTitleBarIcons = "showTitleBarIcons"
+    const val showMenuIcon = "showMenuIcon"
     const val disableReturnKey = "disableReturnKey"
     const val selectText = "selectText"
     //我在干什么
@@ -338,4 +371,27 @@ object PreferKey {
     const val homepageModuleHidden = "homepageModuleHidden"
     const val homepageLayoutMode = "homepageLayoutMode"
     const val navIconHome = "navIconHome"
+
+    // Lab
+    const val labEnabled = "labEnabled"
+    const val labEInkDisplay = "labEInkDisplay"
+    const val labEyeProtection = "labEyeProtection"
+
+    // Eye Protection
+    const val eyeProtectionEnabled = "eyeProtectionEnabled"
+    const val colorTemperature = "colorTemperature"
+    const val eyeProtectionSchedule = "eyeProtectionSchedule"
+    const val eyeProtectionStartTime = "eyeProtectionStartTime"
+    const val eyeProtectionEndTime = "eyeProtectionEndTime"
+}
+
+object ReadMenuBlurMode {
+    const val None = 0
+    const val LiquidGlass = 1
+    const val Haze = 2
+}
+
+object ReadMenuBlurStyle {
+    const val Solid = 0
+    const val Progressive = 1
 }

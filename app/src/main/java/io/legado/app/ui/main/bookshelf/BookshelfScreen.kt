@@ -27,6 +27,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,6 +130,7 @@ import io.legado.app.ui.widget.components.list.TopFloatingStickyItem
 import io.legado.app.ui.widget.components.log.AppLogSheet
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
+import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.progressIndicator.AppCircularProgressIndicator
 import io.legado.app.ui.widget.components.tabRow.AppTabRow
 import io.legado.app.ui.widget.components.text.AppText
@@ -230,6 +232,10 @@ fun BookshelfScreen(
     val pagerState = rememberPagerState(
         initialPage = uiState.selectedGroupIndex.coerceAtLeast(0),
         pageCount = { uiState.groups.size }
+    )
+    val childPagerNestedScrollConnection = rememberPagerFlingPassThroughConnection(
+        state = pagerState,
+        orientation = Orientation.Horizontal,
     )
     val latestGroups by rememberUpdatedState(uiState.groups)
     val latestSelectedGroupId by rememberUpdatedState(uiState.selectedGroupId)
@@ -833,6 +839,7 @@ fun BookshelfScreen(
                     } else {
                         HorizontalPager(
                             state = pagerState,
+                            pageNestedScrollConnection = childPagerNestedScrollConnection,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(
@@ -846,9 +853,12 @@ fun BookshelfScreen(
                             val group = uiState.groups.getOrNull(pageIndex)
                             if (group != null) {
                                 val isSelectedGroup = group.groupId == uiState.selectedGroupId
-                                val books = if (isSelectedGroup) uiState.items
-                                    else uiState.allGroupBooks[group.groupId]
-                                    ?: persistentListOf()
+                                val books = if (isSelectedGroup && uiState.isSearch) {
+                                    uiState.items
+                                } else {
+                                    uiState.allGroupBooks[group.groupId]
+                                        ?: persistentListOf()
+                                }
                                 val canReorderBooks = isEditMode &&
                                         !uiState.isSearch &&
                                         (group.bookSort.takeIf { it >= 0 }

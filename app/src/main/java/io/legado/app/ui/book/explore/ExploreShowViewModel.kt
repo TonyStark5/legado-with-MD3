@@ -10,8 +10,9 @@ import io.legado.app.domain.usecase.BookShelfKey
 import io.legado.app.domain.usecase.ExploreBooksUseCase
 import io.legado.app.domain.usecase.ResolveBookShelfStateUseCase
 import io.legado.app.domain.usecase.SaveSearchBooksUseCase
-import io.legado.app.help.config.AppConfig
-import io.legado.app.utils.exploreLayoutGrid
+import android.content.res.Configuration
+import io.legado.app.data.local.preferences.LocalPreferencesKeys
+import io.legado.app.data.local.preferences.LocalPreferencesRepository
 import io.legado.app.utils.stackTraceStr
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,6 +51,7 @@ class ExploreShowViewModel(
     private val exploreBooksUseCase: ExploreBooksUseCase,
     private val saveSearchBooksUseCase: SaveSearchBooksUseCase,
     private val addToBookshelfUseCase: AddToBookshelfUseCase,
+    private val localPreferencesRepository: LocalPreferencesRepository,
 ) : ViewModel() {
 
     private val _rawBooks = MutableStateFlow<List<SearchBook>>(emptyList())
@@ -57,8 +60,8 @@ class ExploreShowViewModel(
     private val _kindState = MutableStateFlow(ExploreShowKindState())
     private val _displayState = MutableStateFlow(
         ExploreShowDisplayState(
-            layoutState = AppConfig.exploreLayoutState,
-            gridCount = appCtx.exploreLayoutGrid,
+            layoutState = 0,
+            gridCount = if (appCtx.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 7 else 3,
         )
     )
 
@@ -87,6 +90,8 @@ class ExploreShowViewModel(
     init {
         observeBookshelf()
         combineUiState()
+        loadLayoutMode()
+        loadGridCount()
     }
 
     fun onIntent(intent: ExploreShowIntent) {
@@ -210,13 +215,44 @@ class ExploreShowViewModel(
     private fun toggleLayout() {
         _displayState.update {
             val layoutState = if (it.layoutState == 0) 1 else 0
-            AppConfig.exploreLayoutState = layoutState
+            viewModelScope.launch {
+                localPreferencesRepository.updatePreference(LocalPreferencesKeys.EXPLORE_LAYOUT_MODE, layoutState)
+            }
             it.copy(layoutState = layoutState)
         }
     }
 
+    private fun loadLayoutMode() {
+        viewModelScope.launch {
+            val mode = localPreferencesRepository.getPreference(LocalPreferencesKeys.EXPLORE_LAYOUT_MODE, 0).first()
+            _displayState.update { it.copy(layoutState = mode) }
+        }
+    }
+
+    private fun loadGridCount() {
+        viewModelScope.launch {
+            val isLandscape = appCtx.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val key = if (isLandscape) {
+                LocalPreferencesKeys.EXPLORE_LAYOUT_GRID_LANDSCAPE
+            } else {
+                LocalPreferencesKeys.EXPLORE_LAYOUT_GRID_PORTRAIT
+            }
+            val default = if (isLandscape) 7 else 3
+            val count = localPreferencesRepository.getPreference(key, default).first()
+            _displayState.update { it.copy(gridCount = count) }
+        }
+    }
+
     private fun saveGridCount(count: Int) {
-        appCtx.exploreLayoutGrid = count
+        val isLandscape = appCtx.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val key = if (isLandscape) {
+            LocalPreferencesKeys.EXPLORE_LAYOUT_GRID_LANDSCAPE
+        } else {
+            LocalPreferencesKeys.EXPLORE_LAYOUT_GRID_PORTRAIT
+        }
+        viewModelScope.launch {
+            localPreferencesRepository.updatePreference(key, count)
+        }
         _displayState.update { it.copy(gridCount = count) }
     }
 

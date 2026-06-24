@@ -5,8 +5,18 @@ import android.content.Intent
 import androidx.navigation3.runtime.NavKey
 import io.legado.app.ui.rss.article.MainRouteRssSort
 import io.legado.app.ui.rss.read.MainRouteRssRead
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 object MainNavigator {
+
+    private var backNavigationInProgress = false
+    private val navigationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var backNavigationResetJob: Job? = null
 
     fun navigateToRoute(backStack: MutableList<NavKey>, route: NavKey) {
         val currentRoute = backStack.lastOrNull()
@@ -46,14 +56,22 @@ object MainNavigator {
             MainRouteImportLocal,
             MainRouteImportRemote,
             is MainRouteCache,
-            MainRouteBookCacheManage -> {
-                if (currentRoute == MainRouteHome) {
+            MainRouteBookCacheManage,
+            is MainRouteReadBook -> {
+                if (
+                    currentRoute == MainRouteHome ||
+                    currentRoute is MainRouteBookInfo
+                ) {
                     backStack.add(route)
                 } else {
                     backStack.clear()
                     backStack.add(MainRouteHome)
                     backStack.add(route)
                 }
+            }
+
+            is MainRouteSearchContent -> {
+                backStack.add(route)
             }
 
             is MainRouteSearch -> {
@@ -173,10 +191,22 @@ object MainNavigator {
     }
 
     fun navigateBack(activity: Activity, backStack: MutableList<NavKey>) {
+        if (backNavigationInProgress) {
+            return
+        }
         if (backStack.size > 1) {
+            backNavigationInProgress = true
             backStack.removeLastOrNull()
         } else {
             activity.finish()
+        }
+    }
+
+    fun onBackStackChanged() {
+        backNavigationResetJob?.cancel()
+        backNavigationResetJob = navigationScope.launch {
+            delay(500)
+            backNavigationInProgress = false
         }
     }
 
@@ -245,6 +275,15 @@ object MainNavigator {
             )
 
             MainRouteConst.ROUTE_BOOK_CACHE_MANAGE -> MainRouteBookCacheManage
+            MainRouteConst.ROUTE_READ_BOOK -> MainRouteReadBook(
+                bookUrl = intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL),
+                readAloud = intent?.getBooleanExtra(MainIntent.EXTRA_READ_ALOUD, false) == true,
+                inBookshelf = intent?.getBooleanExtra(MainIntent.EXTRA_IN_BOOKSHELF, true) != false,
+                chapterChanged = intent?.getBooleanExtra(
+                    MainIntent.EXTRA_CHAPTER_CHANGED,
+                    false
+                ) == true,
+            )
             MainRouteConst.ROUTE_SEARCH -> MainRouteSearch(
                 key = intent?.getStringExtra(MainIntent.EXTRA_SEARCH_KEY),
                 scopeRaw = intent?.getStringExtra(MainIntent.EXTRA_SEARCH_SCOPE)

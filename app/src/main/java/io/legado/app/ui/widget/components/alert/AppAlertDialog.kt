@@ -73,7 +73,6 @@ fun AppAlertDialog(
                             modifier = Modifier.weight(1f),
                             onClick = {
                                 onDismiss()
-                                onDismissRequest()
                             }
                         )
                     }
@@ -95,7 +94,7 @@ fun AppAlertDialog(
             AlertDialog(
                 onDismissRequest = onDismissRequest,
                 modifier = modifier,
-                containerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
+                containerColor = LegadoTheme.colorScheme.surfaceContainer,
                 iconContentColor = LegadoTheme.colorScheme.primary,
                 titleContentColor = LegadoTheme.colorScheme.onSurface,
                 textContentColor = LegadoTheme.colorScheme.onSurfaceVariant,
@@ -131,7 +130,6 @@ fun AppAlertDialog(
                         SecondaryButton(
                             onClick = {
                                 onDismiss()
-                                onDismissRequest()
                             },
                             text = dismissText
                         )

@@ -1,13 +1,13 @@
 package io.legado.app.ui.config.themeConfig
 
+import android.os.Handler
+import android.os.Looper
+import androidx.appcompat.app.AppCompatDelegate
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.ui.config.prefDelegate
 import io.legado.app.utils.GSON
-import io.legado.app.utils.getPrefString
 import io.legado.app.utils.postEvent
-import io.legado.app.utils.putPrefString
-import splitties.init.appCtx
 
 data class TagColorPair(
     val textColor: Int = 0,
@@ -51,7 +51,17 @@ object ThemeConfig {
 
     var appTheme by prefDelegate(PreferKey.appTheme, "0")
 
-    var themeMode by prefDelegate(PreferKey.themeMode, "0")
+    var themeMode by prefDelegate(PreferKey.themeMode, "0") {
+        Handler(Looper.getMainLooper()).post { initNightMode() }
+    }
+
+    fun initNightMode() {
+        when (themeMode) {
+            "1" -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+            "2" -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+            else -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        }
+    }
 
     var isPureBlack by prefDelegate(PreferKey.pureBlack, false)
 
@@ -75,12 +85,9 @@ object ThemeConfig {
         postEvent(EventBus.RECREATE, "")
     }
 
-    var appFontPath: String?
-        get() = appCtx.getPrefString(PreferKey.appFontPath)
-        set(value) {
-            appCtx.putPrefString(PreferKey.appFontPath, value)
-            postEvent(EventBus.RECREATE, "")
-        }
+    var appFontPath by prefDelegate<String?>(PreferKey.appFontPath, null) {
+        postEvent(EventBus.RECREATE, "")
+    }
 
     var cPrimary by prefDelegate(PreferKey.cPrimary, 0)
 
@@ -119,11 +126,7 @@ object ThemeConfig {
 
     var enableCustomTagColors by prefDelegate(PreferKey.enableCustomTagColors, false)
 
-    var customTagColorsJson: String?
-        get() = appCtx.getPrefString(PreferKey.customTagColors)
-        set(value) {
-            appCtx.putPrefString(PreferKey.customTagColors, value)
-        }
+    var customTagColorsJson by prefDelegate<String?>(PreferKey.customTagColors, null)
 
     fun getCustomTagColors(): List<TagColorPair> {
         return try {
@@ -181,6 +184,23 @@ object ThemeConfig {
     var navIconRss by prefDelegate(PreferKey.navIconRss, "")
 
     var navIconMy by prefDelegate(PreferKey.navIconMy, "")
+
+    // Eye Protection
+    var eyeProtectionEnabled by prefDelegate(PreferKey.eyeProtectionEnabled, false) {
+        postEvent(PreferKey.eyeProtectionEnabled, it)
+    }
+    var colorTemperature by prefDelegate(PreferKey.colorTemperature, 50) {
+        postEvent(PreferKey.colorTemperature, it)
+    }
+    var eyeProtectionSchedule by prefDelegate(PreferKey.eyeProtectionSchedule, false) {
+        postEvent(PreferKey.eyeProtectionSchedule, it)
+    }
+    var eyeProtectionStartTime by prefDelegate(PreferKey.eyeProtectionStartTime, "22:00") {
+        postEvent(PreferKey.eyeProtectionStartTime, it)
+    }
+    var eyeProtectionEndTime by prefDelegate(PreferKey.eyeProtectionEndTime, "07:00") {
+        postEvent(PreferKey.eyeProtectionEndTime, it)
+    }
 
     fun hasImageBg(isDark: Boolean): Boolean =
         !(if (isDark) bgImageDark else bgImageLight).isNullOrBlank()

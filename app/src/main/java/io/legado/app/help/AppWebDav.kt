@@ -3,7 +3,6 @@ package io.legado.app.help
 import android.net.Uri
 import io.legado.app.R
 import io.legado.app.constant.AppLog
-import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookProgress
@@ -18,6 +17,7 @@ import io.legado.app.lib.webdav.WebDav
 import io.legado.app.lib.webdav.WebDavException
 import io.legado.app.lib.webdav.WebDavFile
 import io.legado.app.model.remote.RemoteBookWebDav
+import io.legado.app.ui.config.backupConfig.BackupConfig
 import io.legado.app.utils.AlphanumComparator
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.GSON
@@ -25,7 +25,6 @@ import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.UrlUtil
 import io.legado.app.utils.compress.ZipUtils
 import io.legado.app.utils.fromJsonObject
-import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isJson
 import io.legado.app.utils.normalizeFileName
 import io.legado.app.utils.toastOnUi
@@ -34,7 +33,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import splitties.init.appCtx
 import java.io.File
-import kotlin.coroutines.coroutineContext
 
 /**
  * webDav初始化会访问网络,不要放到主线程
@@ -62,8 +60,8 @@ object AppWebDav {
 
     private val rootWebDavUrl: String
         get() {
-            val configUrl = appCtx.getPrefString(PreferKey.webDavUrl)?.trim()
-            var url = if (configUrl.isNullOrEmpty()) defaultWebDavUrl else configUrl
+            val configUrl = BackupConfig.webDavUrl.trim()
+            var url = if (configUrl.isEmpty()) defaultWebDavUrl else configUrl
             if (!url.endsWith("/")) url = "${url}/"
             AppConfig.webDavDir?.trim()?.let {
                 if (it.isNotEmpty()) {
@@ -77,8 +75,8 @@ object AppWebDav {
         kotlin.runCatching {
             authorization = null
             defaultBookWebDav = null
-            val account = appCtx.getPrefString(PreferKey.webDavAccount)
-            val password = appCtx.getPrefString(PreferKey.webDavPassword)
+            val account = BackupConfig.webDavAccount
+            val password = BackupConfig.webDavPassword
             if (!account.isNullOrEmpty() && !password.isNullOrEmpty()) {
                 val mAuthorization = Authorization(account, password)
                 checkAuthorization(mAuthorization)
@@ -162,8 +160,8 @@ object AppWebDav {
 
     suspend fun testWebDav(): Boolean {
         return kotlin.runCatching {
-            val account = appCtx.getPrefString(PreferKey.webDavAccount)
-            val password = appCtx.getPrefString(PreferKey.webDavPassword)
+            val account = BackupConfig.webDavAccount
+            val password = BackupConfig.webDavPassword
             if (account.isNullOrEmpty() || password.isNullOrEmpty()) {
                 appCtx.toastOnUi("账号或密码为空")
                 return false
@@ -360,10 +358,10 @@ object AppWebDav {
         appDb.bookDao.all.forEach { book ->
             val progressFileName = getProgressFileName(book.name, book.author)
             val webDavFile = map[progressFileName]
-            webDavFile ?: return
+            webDavFile ?: return@forEach
             if (webDavFile.lastModify <= book.syncTime) {
                 //本地同步时间大于上传时间不用同步
-                return
+                return@forEach
             }
             getBookProgress(book)?.let { bookProgress ->
                 if (bookProgress.durChapterIndex > book.durChapterIndex

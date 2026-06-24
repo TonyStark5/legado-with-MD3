@@ -6,14 +6,20 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import io.legado.app.help.config.AppConfig
 import io.legado.app.model.Download
 import io.legado.app.ui.about.AboutEffect
 import io.legado.app.ui.about.AboutScreen
@@ -27,17 +33,24 @@ import io.legado.app.ui.book.import.remote.RemoteBookScreen
 import io.legado.app.ui.book.info.BookInfoRouteScreen
 import io.legado.app.ui.book.info.BookInfoViewModel
 import io.legado.app.ui.book.manage.BookshelfManageRouteScreen
+import io.legado.app.ui.book.read.ReadBookController
+import io.legado.app.ui.book.read.ReadBookIntent
+import io.legado.app.ui.book.read.ReadBookRouteScreen
+import io.legado.app.ui.book.read.ReadBookViewModel
 import io.legado.app.ui.book.readRecord.ReadRecordOverviewScreen
 import io.legado.app.ui.book.readRecord.ReadRecordScreen
 import io.legado.app.ui.book.search.SearchIntent
 import io.legado.app.ui.book.search.SearchScreen
 import io.legado.app.ui.book.search.SearchViewModel
+import io.legado.app.ui.book.searchContent.SearchContentScreen
+import io.legado.app.ui.book.searchContent.SearchContentViewModel
 import io.legado.app.ui.book.source.manage.BookSourceActivity
 import io.legado.app.ui.config.ConfigNavScreen
 import io.legado.app.ui.config.backupConfig.BackupConfigScreen
 import io.legado.app.ui.config.coverConfig.CoverConfigScreen
 import io.legado.app.ui.config.customTheme.CustomThemeScreen
 import io.legado.app.ui.config.downloadCacheConfig.DownloadCacheConfigScreen
+import io.legado.app.ui.config.labConfig.LabConfigScreen
 import io.legado.app.ui.config.otherConfig.OtherConfigScreen
 import io.legado.app.ui.config.readConfig.ReadConfigScreen
 import io.legado.app.ui.config.themeConfig.ThemeConfigScreen
@@ -53,11 +66,14 @@ import io.legado.app.utils.openUrl
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.startActivityForBook
 import io.legado.app.utils.toastOnUi
+import io.legado.app.utils.toggleSystemBar
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 fun MainActivity.mainEntryProvider(
@@ -159,7 +175,8 @@ fun MainActivity.mainEntryProvider(
             onNavigateToTheme = { backStack.add(MainRouteSettingsTheme) },
             onNavigateToBackup = { backStack.add(MainRouteSettingsBackup) },
             onNavigateToDownloadCache = { backStack.add(MainRouteSettingsDownloadCache) },
-            onNavigateToTranslation = { backStack.add(MainRouteSettingsTranslation) }
+            onNavigateToTranslation = { backStack.add(MainRouteSettingsTranslation) },
+            onNavigateToLab = { backStack.add(MainRouteSettingsLabConfig) }
         )
     }
 
@@ -193,6 +210,10 @@ fun MainActivity.mainEntryProvider(
 
     entry<MainRouteSettingsTranslation> {
         TranslationConfigScreen(onBackClick = { onNavigateBack() })
+    }
+
+    entry<MainRouteSettingsLabConfig> {
+        LabConfigScreen(onBackClick = { onNavigateBack() })
     }
 
     entry<MainRouteSettingsCustomTheme> {
@@ -239,6 +260,118 @@ fun MainActivity.mainEntryProvider(
         )
     }
 
+    entry<MainRouteReadBook> { route ->
+        val readBookViewModel = koinViewModel<ReadBookViewModel>(
+            key = "ReadBook:${route.bookUrl ?: "last-read"}"
+        )
+        val controller = remember(readBookViewModel) {
+            ReadBookController(this@mainEntryProvider, readBookViewModel)
+        }
+        val lifecycleOwner = LocalLifecycleOwner.current
+        val readIntent = remember(route) {
+            MainActivity.createReadBookIntent(
+                context = this@mainEntryProvider,
+                bookUrl = route.bookUrl,
+                readAloud = route.readAloud,
+                inBookshelf = route.inBookshelf,
+                chapterChanged = route.chapterChanged,
+            )
+        }
+        val effectsReady = remember(readBookViewModel) { CompletableDeferred<Unit>() }
+        val readerResumeState = remember(controller, lifecycleOwner) { booleanArrayOf(false) }
+        val collectorReady = remember(readBookViewModel) { booleanArrayOf(false) }
+        fun resumeReader() {
+            if (readerResumeState[0]) return
+            readerResumeState[0] = true
+            controller.onResume()
+            readBookViewModel.onIntent(ReadBookIntent.OnResume)
+        }
+
+        fun pauseReader() {
+            if (!readerResumeState[0]) return
+            readerResumeState[0] = false
+            controller.onPause()
+            readBookViewModel.onIntent(ReadBookIntent.OnPause)
+        }
+
+        ReadBookRouteScreen(
+            viewModel = readBookViewModel,
+            host = controller,
+            controller = controller,
+            onEffectsReady = { effectsReady.complete(Unit) },
+            onOpenSearch = { word, bookUrl ->
+                onNavigateToRoute(
+                    MainRouteSearchContent(
+                        bookUrl = bookUrl,
+                        searchWord = word,
+                        searchResultIndex = readBookViewModel.uiState.value.searchResultIndex
+                    )
+                )
+            },
+        )
+
+        DisposableEffect(controller, lifecycleOwner, route.readAloud) {
+            activeReadBookInputHandler = controller
+            activeReadBookRoute = route
+            MainActivity.hasActiveReadBookRoute = true
+            controller.onClose = { onNavigateBack() }
+            controller.onStartContentLoadFinish = {
+                if (route.readAloud) {
+                    io.legado.app.model.ReadBook.readAloud()
+                }
+            }
+
+            val lifecycleObserver = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> {
+                        if (collectorReady[0]) resumeReader()
+                    }
+                    Lifecycle.Event.ON_PAUSE -> pauseReader()
+                    else -> Unit
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+            onDispose {
+                pauseReader()
+                readBookViewModel.onIntent(ReadBookIntent.OnDispose)
+                lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+                if (activeReadBookInputHandler === controller) {
+                    activeReadBookInputHandler = null
+                }
+                if (activeReadBookRoute == route) {
+                    activeReadBookRoute = null
+                }
+                MainActivity.hasActiveReadBookRoute = false
+                controller.clearTts()
+                this@mainEntryProvider.toggleSystemBar(AppConfig.showStatusBar)
+            }
+        }
+
+        LaunchedEffect(route, readBookViewModel, lifecycleOwner) {
+            effectsReady.await()
+            collectorReady[0] = true
+            readBookViewModel.initReadBookConfig(readIntent)
+            readBookViewModel.initData(readIntent) {
+                readBookViewModel.markJustInitData()
+                controller.onRouteInitialized()
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    resumeReader()
+                }
+            }
+        }
+    }
+
+    entry<MainRouteSearchContent> { route ->
+        val viewModel = koinViewModel<SearchContentViewModel>(
+            key = "SearchContent:${route.bookUrl}",
+            parameters = { parametersOf(route) }
+        )
+        SearchContentScreen(
+            viewModel = viewModel,
+            onBack = { onNavigateBack() },
+        )
+    }
+
     entry<MainRouteSearch> { route ->
         val searchViewModel = koinViewModel<SearchViewModel>()
 
@@ -281,7 +414,16 @@ fun MainActivity.mainEntryProvider(
         RssSortRouteScreen(
             sourceUrl = route.sourceUrl,
             initialSortUrl = route.sortUrl,
+            initialSearchKey = route.key,
             onBackClick = { onNavigateBack() },
+            onSearch = { key ->
+                onNavigateToRoute(
+                    MainRouteRssSort(
+                        sourceUrl = route.sourceUrl,
+                        key = key
+                    )
+                )
+            },
             onOpenRead = { title, origin, link, openUrl ->
                 if (link?.contains("@js:") == true) {
                     onNavigateToRoute(
@@ -409,7 +551,7 @@ fun MainActivity.mainEntryProvider(
             } else null
         }
     ) { route ->
-        val bookInfoViewModel = koinViewModel<BookInfoViewModel>(key = route.bookUrl)
+        val bookInfoViewModel = koinViewModel<BookInfoViewModel>(key = "BookInfo:${route.bookUrl}")
         BookInfoRouteScreen(
             bookUrl = route.bookUrl,
             name = route.name,
@@ -421,6 +563,15 @@ fun MainActivity.mainEntryProvider(
             onFinish = { _, _ -> onNavigateBack() },
             onOpenSearch = { keyword ->
                 onNavigateToRoute(MainRouteSearch(key = keyword))
+            },
+            onOpenReader = { bookUrl, inBookshelf, chapterChanged ->
+                onNavigateToRoute(
+                    MainRouteReadBook(
+                        bookUrl = bookUrl,
+                        inBookshelf = inBookshelf,
+                        chapterChanged = chapterChanged,
+                    )
+                )
             },
             onNavigateToBookInfo = { name, author, bookUrl, origin, coverPath ->
                 onNavigateToRoute(MainRouteBookInfo(name, author, bookUrl, origin, coverPath))

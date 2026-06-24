@@ -3,10 +3,8 @@ package io.legado.app.ui.config.themeConfig
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
-import android.widget.TextView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -30,8 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +51,7 @@ import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,7 +59,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
@@ -72,31 +68,28 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.base.AppContextWrapper
 import io.legado.app.constant.EventBus
-import io.legado.app.constant.PreferKey
 import io.legado.app.help.LauncherIconHelp
-import io.legado.app.help.config.AppConfig
-import io.legado.app.help.config.OldThemeConfig
-import io.legado.app.help.loadFontFiles
+import io.legado.app.help.config.ThemeConfigStore
+import io.legado.app.ui.config.labConfig.LabConfig
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.ThemeEngine
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
+import io.legado.app.ui.widget.components.FontFolderState
+import io.legado.app.ui.widget.components.FontSelectSheet
 import io.legado.app.ui.widget.components.SplicedColumnGroup
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.button.series.SmallPlainButton
 import io.legado.app.ui.widget.components.card.GlassCard
-import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
 import io.legado.app.ui.widget.components.icon.AppIcons
-import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.settingItem.ClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.DropdownListSettingItem
 import io.legado.app.ui.widget.components.settingItem.SliderSettingItem
@@ -105,9 +98,7 @@ import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.topbar.GlassMediumFlexibleTopAppBar
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
 import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
-import io.legado.app.utils.getPrefString
 import io.legado.app.utils.postEvent
-import io.legado.app.utils.putPrefString
 import io.legado.app.utils.restart
 import io.legado.app.utils.takePersistablePermissionSafely
 import io.legado.app.utils.toastOnUi
@@ -135,23 +126,22 @@ fun ThemeConfigScreen(
     var showFontSheet by remember { mutableStateOf(false) }
     val showThemeRefactorTip by viewModel.showThemeRefactorTip.collectAsStateWithLifecycle()
 
-    var fontFolderUri by remember {
-        mutableStateOf(
-            context.getPrefString(PreferKey.fontFolder)?.toUri()
-        )
-    }
-
-    val fontItems = remember(fontFolderUri) {
-        loadFontFiles(context, fontFolderUri)
+    val fontFolder by viewModel.fontFolder.collectAsStateWithLifecycle()
+    val fontFolderState = remember(fontFolder) {
+        val folder = fontFolder
+        if (folder == null) {
+            FontFolderState.Loading
+        } else {
+            FontFolderState.Loaded(folder.takeIf { it.isNotEmpty() }?.toUri())
+        }
     }
 
     val fontFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            fontFolderUri = uri
             uri.takePersistablePermissionSafely(context, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            context.putPrefString(PreferKey.fontFolder, uri.toString())
+            viewModel.setFontFolder(uri.toString())
         }
     }
 
@@ -248,7 +238,7 @@ fun ThemeConfigScreen(
                             onValueChange = { mode ->
                                 selectedThemeMode = mode
                                 ThemeConfig.themeMode = mode
-                                OldThemeConfig.applyDayNight(context)
+                                ThemeConfigStore.applyDayNight(context)
                             }
                         )
 
@@ -288,7 +278,7 @@ fun ThemeConfigScreen(
                             onModeSelected = { mode ->
                                 selectedThemeMode = mode
                                 ThemeConfig.themeMode = mode
-                                OldThemeConfig.applyDayNight(context)
+                                ThemeConfigStore.applyDayNight(context)
                             }
                         )
                     }
@@ -296,9 +286,12 @@ fun ThemeConfigScreen(
                     if (!isMiuixEngine) {
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        val visibleThemes = themes.filter { (_, value) ->
+                            value != "4" || (LabConfig.labEnabled && LabConfig.eInkDisplay)
+                        }
                         ThemeColorSelector(
                             context = context,
-                            themes = themes,
+                            themes = visibleThemes,
                             selectedTheme = selectedTheme,
                             isDark = isDarkTheme,
                             isAmoled = ThemeConfig.isPureBlack,
@@ -313,7 +306,7 @@ fun ThemeConfigScreen(
                                         context.toastOnUi(R.string.transparent_theme_alarm)
                                         return@ThemeColorSelector
                                     } else {
-                                        AppConfig.containerOpacity = 0
+                                        ThemeConfig.containerOpacity = 0
                                     }
                                 }
                                 val oldTheme = selectedTheme
@@ -400,7 +393,10 @@ fun ThemeConfigScreen(
                     SwitchSettingItem(
                         title = stringResource(R.string.show_status),
                         checked = ThemeConfig.showStatusBar,
-                        onCheckedChange = { ThemeConfig.showStatusBar = it }
+                        onCheckedChange = {
+                            ThemeConfig.showStatusBar = it
+                            postEvent(EventBus.NOTIFY_MAIN, true)
+                        }
                     )
                     //TODO:这个可以不要了，在删掉原来的设置页以后删
                     SwitchSettingItem(
@@ -462,6 +458,119 @@ fun ThemeConfigScreen(
                         entryValues = stringArrayResource(R.array.default_home_page_value),
                         onValueChange = { ThemeConfig.defaultHomePage = it }
                     )
+                }
+
+                SplicedColumnGroup(title = stringResource(R.string.eye_protection)) {
+                    var eyeProtectionEnabled by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionEnabled)
+                    }
+                    var colorTemperature by remember {
+                        mutableIntStateOf(ThemeConfig.colorTemperature)
+                    }
+                    var eyeProtectionSchedule by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionSchedule)
+                    }
+                    var eyeProtectionStartTime by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionStartTime)
+                    }
+                    var eyeProtectionEndTime by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionEndTime)
+                    }
+
+                    SwitchSettingItem(
+                        title = stringResource(R.string.eye_protection_enabled),
+                        description = stringResource(R.string.eye_protection_enabled_summary),
+                        checked = eyeProtectionEnabled,
+                        onCheckedChange = {
+                            eyeProtectionEnabled = it
+                            ThemeConfig.eyeProtectionEnabled = it
+                        }
+                    )
+
+                    AnimatedVisibility(visible = eyeProtectionEnabled) {
+                        Column {
+                            SliderSettingItem(
+                                title = stringResource(R.string.color_temperature),
+                                description = stringResource(
+                                    R.string.color_temperature_summary,
+                                    colorTemperature
+                                ),
+                                value = colorTemperature.toFloat(),
+                                defaultValue = 50f,
+                                valueRange = 0f..100f,
+                                steps = 99,
+                                onValueChange = {
+                                    colorTemperature = it.toInt()
+                                    ThemeConfig.colorTemperature = it.toInt()
+                                }
+                            )
+
+                            SwitchSettingItem(
+                                title = stringResource(R.string.eye_protection_schedule),
+                                description = stringResource(R.string.eye_protection_schedule_summary),
+                                checked = eyeProtectionSchedule,
+                                onCheckedChange = {
+                                    eyeProtectionSchedule = it
+                                    ThemeConfig.eyeProtectionSchedule = it
+                                }
+                            )
+
+                            AnimatedVisibility(visible = eyeProtectionSchedule) {
+                                Column {
+                                    ClickableSettingItem(
+                                        title = stringResource(R.string.eye_protection_start_time),
+                                        option = eyeProtectionStartTime,
+                                        onClick = {
+                                            val parts = eyeProtectionStartTime.split(":")
+                                            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 22
+                                            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                            android.app.TimePickerDialog(
+                                                context,
+                                                { _, h, m ->
+                                                    val timeStr = String.format(
+                                                        java.util.Locale.US,
+                                                        "%02d:%02d",
+                                                        h.coerceIn(0, 23),
+                                                        m.coerceIn(0, 59)
+                                                    )
+                                                    eyeProtectionStartTime = timeStr
+                                                    ThemeConfig.eyeProtectionStartTime = timeStr
+                                                },
+                                                hour.coerceIn(0, 23),
+                                                minute.coerceIn(0, 59),
+                                                true
+                                            ).show()
+                                        }
+                                    )
+                                    ClickableSettingItem(
+                                        title = stringResource(R.string.eye_protection_end_time),
+                                        option = eyeProtectionEndTime,
+                                        onClick = {
+                                            val parts = eyeProtectionEndTime.split(":")
+                                            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
+                                            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                            android.app.TimePickerDialog(
+                                                context,
+                                                { _, h, m ->
+                                                    val timeStr = String.format(
+                                                        java.util.Locale.US,
+                                                        "%02d:%02d",
+                                                        h.coerceIn(0, 23),
+                                                        m.coerceIn(0, 59)
+                                                    )
+                                                    eyeProtectionEndTime = timeStr
+                                                    ThemeConfig.eyeProtectionEndTime = timeStr
+                                                },
+                                                hour.coerceIn(0, 23),
+                                                minute.coerceIn(0, 59),
+                                                true
+                                            ).show()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 SplicedColumnGroup(title = stringResource(R.string.compose_related)) {
@@ -758,10 +867,16 @@ fun ThemeConfigScreen(
         }
     )
 
-    AppModalBottomSheet(
+    FontSelectSheet(
         show = showFontSheet,
-        onDismissRequest = { showFontSheet = false },
         title = stringResource(R.string.font_setting),
+        folderState = fontFolderState,
+        selectedFontPath = ThemeConfig.appFontPath,
+        onDismissRequest = { showFontSheet = false },
+        onSelectFont = { doc ->
+            ThemeConfig.appFontPath = doc.uri.toString()
+        },
+        onOpenFolderPicker = { fontFolderLauncher.launch(null) },
         startAction = {
             SmallPlainButton(
                 icon = Icons.Default.Delete,
@@ -772,77 +887,9 @@ fun ThemeConfigScreen(
                 }
             )
         },
-        endAction = {
-            SmallPlainButton(
-                icon = Icons.Default.Add,
-                contentDescription = stringResource(R.string.select_folder),
-                onClick = { fontFolderLauncher.launch(null) }
-            )
-        },
-        content = {
-            if (fontItems.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.theme_config_no_font_files),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    fontItems.forEach { fontDoc ->
-                        item {
-                            val textColor = LegadoTheme.colorScheme.onSurface.toArgb()
-                            NormalCard(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(100.dp),
-                                onClick = {
-                                    ThemeConfig.appFontPath = fontDoc.uri.toString()
-                                    showFontSheet = false
-                                },
-                                containerColor = LegadoTheme.colorScheme.onSheetContent
-                            ) {
-                                AndroidView(
-                                    factory = { ctx ->
-                                        TextView(ctx).apply {
-                                            text = fontDoc.name
-                                            textSize = 14f
-                                            setTextColor(textColor)
-                                            gravity = android.view.Gravity.CENTER
-                                            maxLines = 2
-                                            ellipsize = android.text.TextUtils.TruncateAt.END
-                                            runCatching {
-                                                val typeface: Typeface? = if (fontDoc.uri.scheme == "content") {
-                                                    ctx.contentResolver.openFileDescriptor(fontDoc.uri, "r")?.use {
-                                                        Typeface.Builder(it.fileDescriptor).build()
-                                                    }
-                                                } else {
-                                                    Typeface.createFromFile(fontDoc.uri.path!!)
-                                                }
-                                                this.typeface = typeface
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(12.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        folderIcon = Icons.Default.Add,
+        folderContentDescription = stringResource(R.string.select_folder),
+        emptyText = stringResource(R.string.theme_config_no_font_files),
     )
 
 }
