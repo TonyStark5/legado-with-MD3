@@ -67,7 +67,7 @@ fun EditThemeSheet(
                     }
                 },
                 icon = Icons.Default.Done,
-                contentDescription = "Save"
+                contentDescription = stringResource(R.string.save)
             )
         }
     ) {
@@ -132,6 +132,7 @@ fun EditThemeSheet(
                 onCheckedChange = { data = data.copy(enableDeepPersonalization = !it) }
             )
             if (data.enableDeepPersonalization) {
+                SectionTitle(stringResource(R.string.day))
                 ColorItem(stringResource(R.string.theme_manage_primary_color), data.themeColor) {
                     currentColorKey = "themeColor"; showColorPicker = true
                 }
@@ -150,6 +151,25 @@ fun EditThemeSheet(
                 ColorItem(stringResource(R.string.theme_manage_label_container_color), data.labelContainerColor) {
                     currentColorKey = "labelContainerColor"; showColorPicker = true
                 }
+                SectionTitle(stringResource(R.string.night))
+                ColorItem(stringResource(R.string.theme_manage_primary_color), data.themeColorNight) {
+                    currentColorKey = "themeColorNight"; showColorPicker = true
+                }
+                ColorItem(stringResource(R.string.theme_manage_secondary_color), data.secondaryThemeColorNight) {
+                    currentColorKey = "secondaryThemeColorNight"; showColorPicker = true
+                }
+                ColorItem(stringResource(R.string.theme_manage_primary_text_color), data.primaryTextColorNight) {
+                    currentColorKey = "primaryTextColorNight"; showColorPicker = true
+                }
+                ColorItem(stringResource(R.string.theme_manage_secondary_text_color), data.secondaryTextColorNight) {
+                    currentColorKey = "secondaryTextColorNight"; showColorPicker = true
+                }
+                ColorItem(stringResource(R.string.theme_manage_background_color), data.themeBackgroundColorNight) {
+                    currentColorKey = "themeBackgroundColorNight"; showColorPicker = true
+                }
+                ColorItem(stringResource(R.string.theme_manage_label_container_color), data.labelContainerColorNight) {
+                    currentColorKey = "labelContainerColorNight"; showColorPicker = true
+                }
             } else {
                 ColorItem(stringResource(R.string.theme_manage_day_seed_color), data.cPrimary) {
                     currentColorKey = "cPrimary"; showColorPicker = true
@@ -164,7 +184,7 @@ fun EditThemeSheet(
             // Interface layout
             SectionTitle(stringResource(R.string.theme_manage_section_layout))
             CompactSwitchSettingItem(
-                title = "首页",
+                title = stringResource(R.string.show_home),
                 checked = data.showHome,
                 onCheckedChange = { data = data.copy(showHome = it) }
             )
@@ -310,6 +330,12 @@ fun EditThemeSheet(
             "secondaryTextColor" -> data.secondaryTextColor
             "themeBackgroundColor" -> data.themeBackgroundColor
             "labelContainerColor" -> data.labelContainerColor
+            "themeColorNight" -> data.themeColorNight
+            "secondaryThemeColorNight" -> data.secondaryThemeColorNight
+            "primaryTextColorNight" -> data.primaryTextColorNight
+            "secondaryTextColorNight" -> data.secondaryTextColorNight
+            "themeBackgroundColorNight" -> data.themeBackgroundColorNight
+            "labelContainerColorNight" -> data.labelContainerColorNight
             "cPrimary" -> data.cPrimary
             "cNPrimary" -> data.cNPrimary
             else -> 0
@@ -323,6 +349,12 @@ fun EditThemeSheet(
                 "secondaryTextColor" -> data.copy(secondaryTextColor = color)
                 "themeBackgroundColor" -> data.copy(themeBackgroundColor = color)
                 "labelContainerColor" -> data.copy(labelContainerColor = color)
+                "themeColorNight" -> data.copy(themeColorNight = color)
+                "secondaryThemeColorNight" -> data.copy(secondaryThemeColorNight = color)
+                "primaryTextColorNight" -> data.copy(primaryTextColorNight = color)
+                "secondaryTextColorNight" -> data.copy(secondaryTextColorNight = color)
+                "themeBackgroundColorNight" -> data.copy(themeBackgroundColorNight = color)
+                "labelContainerColorNight" -> data.copy(labelContainerColorNight = color)
                 "cPrimary" -> data.copy(cPrimary = color)
                 "cNPrimary" -> data.copy(cNPrimary = color)
                 else -> data

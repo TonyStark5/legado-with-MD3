@@ -3,6 +3,7 @@ package io.legado.app.ui.book.toc
 import android.app.Application
 import android.net.Uri
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -27,20 +28,30 @@ import io.legado.app.model.localBook.LocalBook
 import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.list.ListUiState
 import io.legado.app.ui.widget.components.list.SelectableItem
-import io.legado.app.utils.toastOnUi
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flatMapMerge
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.scan
@@ -74,16 +85,56 @@ data class TocBookmarkItemUi(
     val raw: Bookmark
 )
 
+@Stable
 data class TocActionState(
-    override val items: List<TocItemUi> = emptyList(),
-    override val selectedIds: Set<Int> = emptySet(),
+    override val items: ImmutableList<TocItemUi> = persistentListOf(),
+    override val selectedIds: ImmutableSet<Int> = persistentSetOf(),
     override val searchKey: String = "",
     override val isSearch: Boolean = false,
     override val isLoading: Boolean = false,
     val downloadSummary: String = "",
     val useReplace: Boolean = false,
     val showWordCount: Boolean = true,
+    val titleReplaceProgress: Float? = null,
 ) : ListUiState<TocItemUi>
+
+@Stable
+data class TocUiState(
+    val action: TocActionState = TocActionState(),
+    val book: Book? = null,
+    val collapsedVolumes: ImmutableSet<Int> = persistentSetOf(),
+    val bookmarks: ImmutableList<TocBookmarkItemUi> = persistentListOf(),
+    val isSplitLongChapter: Boolean = false,
+)
+
+sealed interface TocIntent {
+    data class SetSearchMode(val enabled: Boolean) : TocIntent
+    data class SetSearchQuery(val query: String) : TocIntent
+    data class ToggleVolume(val id: Int) : TocIntent
+    data class ToggleSelection(val id: Int) : TocIntent
+    data class SaveTocRegex(val regex: String) : TocIntent
+    data class ExportBookmarks(val uri: Uri, val isMarkdown: Boolean) : TocIntent
+    data class UpdateBookmark(val bookmark: Bookmark) : TocIntent
+    data class DeleteBookmark(val bookmark: Bookmark) : TocIntent
+    data class DownloadChapter(val id: Int) : TocIntent
+    data object DownloadAll : TocIntent
+    data object DownloadSelected : TocIntent
+    data object SelectAll : TocIntent
+    data object InvertSelection : TocIntent
+    data object ClearSelection : TocIntent
+    data object SelectFromLast : TocIntent
+    data object AddBookmarksForSelected : TocIntent
+    data object ToggleUseReplace : TocIntent
+    data object ToggleShowWordCount : TocIntent
+    data object ReverseToc : TocIntent
+    data object ToggleSplitLongChapter : TocIntent
+    data object ExpandAllVolumes : TocIntent
+    data object CollapseAllVolumes : TocIntent
+}
+
+sealed interface TocEffect {
+    data class ShowMessage(val message: String) : TocEffect
+}
 
 data class TocDomainItem(
     val chapter: BookChapter,
@@ -108,12 +159,45 @@ private data class TocPreferences(
     val showWordCount: Boolean
 )
 
-private data class TitleCacheKey(
+internal data class TitleCacheKey(
     val bookUrl: String,
     val useReplace: Boolean,
     val rulesFingerprint: Int,
     val chineseConverterType: Int,
-    val chapterCount: Int
+    val chapterCount: Int,
+    val chaptersFingerprint: Long
+)
+
+internal object TocTitleCache {
+    private const val MAX_ENTRIES = 8
+    private val entries = object : LinkedHashMap<TitleCacheKey, Map<Int, String>>(
+        MAX_ENTRIES,
+        0.75f,
+        true
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<TitleCacheKey, Map<Int, String>>?
+        ): Boolean = size > MAX_ENTRIES
+    }
+
+    @Synchronized
+    fun get(key: TitleCacheKey): Map<Int, String>? = entries[key]
+
+    @Synchronized
+    fun put(key: TitleCacheKey, titles: Map<Int, String>) {
+        entries[key] = titles.toMap()
+    }
+
+    @Synchronized
+    fun clear() = entries.clear()
+}
+
+private data class TitleReplaceState(
+    val cacheKey: TitleCacheKey? = null,
+    val titles: Map<Int, String> = emptyMap(),
+    val completed: Int = 0,
+    val total: Int = 0,
+    val isRunning: Boolean = false
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -139,6 +223,8 @@ class TocViewModel(
 
     private val _collapsedVolumes = MutableStateFlow<Set<Int>>(emptySet())
     val collapsedVolumes = _collapsedVolumes.asStateFlow()
+    private val _effects = MutableSharedFlow<TocEffect>(extraBufferCapacity = 16)
+    val effects = _effects.asSharedFlow()
 
     val downloadSummary: StateFlow<String> =
         CacheBook.downloadSummaryFlow
@@ -207,6 +293,27 @@ class TocViewModel(
                 initialValue = emptyList()
             )
 
+    val screenState: StateFlow<TocUiState> by lazy {
+        combine(
+            uiState,
+            bookState,
+            collapsedVolumes,
+            bookmarkUiList,
+        ) { action, book, collapsed, bookmarks ->
+            TocUiState(
+                action = action,
+                book = book,
+                collapsedVolumes = collapsed.toImmutableSet(),
+                bookmarks = bookmarks.toImmutableList(),
+                isSplitLongChapter = book?.getSplitLongChapter() ?: false,
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = TocUiState(),
+        )
+    }
+
     private val reverseFlow =
         bookState.map { it?.getReverseToc() ?: false }
             .distinctUntilChanged()
@@ -240,7 +347,7 @@ class TocViewModel(
         TocUiConfig(collapsed, tocPreferences.useReplace, tocPreferences.showWordCount, isReverse)
     }
 
-    private val titleReplaceCache = MutableStateFlow<Map<Int, String>>(emptyMap())
+    private val titleReplaceState = MutableStateFlow(TitleReplaceState())
     private var titleCacheJob: Job? = null
     private var lastTitleCacheKey: TitleCacheKey? = null
 
@@ -249,8 +356,8 @@ class TocViewModel(
             .flatMapLatest { appDb.bookChapterDao.getChapterListFlow(it) },
         downloadContextFlow,
         uiConfigFlow,
-        titleReplaceCache
-    ) { originalChapters, downloadCtx, config, cachedTitles ->
+        titleReplaceState
+    ) { originalChapters, downloadCtx, config, titleState ->
         val book = bookState.value ?: return@combine emptyList()
 
         val processedChapters = if (config.isReverse) {
@@ -275,7 +382,7 @@ class TocViewModel(
                 val baseTitle = chapter.getDisplayTitle(useReplace = false)
                 TocDomainItem(
                     chapter = chapter,
-                    displayTitle = cachedTitles[chapter.index] ?: baseTitle,
+                    displayTitle = titleState.titles[chapter.index] ?: baseTitle,
                     downloadState = DownloadState.LOCAL
                 )
             }
@@ -296,7 +403,7 @@ class TocViewModel(
             val baseTitle = chapter.getDisplayTitle(useReplace = false)
             TocDomainItem(
                 chapter,
-                cachedTitles[chapter.index] ?: baseTitle,
+                titleState.titles[chapter.index] ?: baseTitle,
                 downloadState
             )
         }
@@ -344,14 +451,17 @@ class TocViewModel(
         }
 
         return TocActionState(
-            items = updatedItems,
-            selectedIds = selectedIds,
+            items = updatedItems.toImmutableList(),
+            selectedIds = selectedIds.toImmutableSet(),
             searchKey = _searchKey.value,
             isSearch = isSearch,
             isLoading = isUploading,
             downloadSummary = downloadSummary.value,
             useReplace = tocPreferences.value.useReplace,
             showWordCount = tocPreferences.value.showWordCount,
+            titleReplaceProgress = titleReplaceState.value
+                .takeIf { it.isRunning && it.total > 0 }
+                ?.let { it.completed.toFloat() / it.total },
         )
     }
 
@@ -385,6 +495,33 @@ class TocViewModel(
     override fun hasChanged(newRule: TocDomainItem, oldRule: TocDomainItem) = false
     override suspend fun findOldRule(newRule: TocDomainItem) = null
     override fun saveImportedRules() {}
+
+    fun onIntent(intent: TocIntent) {
+        when (intent) {
+            is TocIntent.SetSearchMode -> setSearchMode(intent.enabled)
+            is TocIntent.SetSearchQuery -> setSearchKey(intent.query)
+            is TocIntent.ToggleVolume -> toggleVolume(intent.id)
+            is TocIntent.ToggleSelection -> toggleSelection(intent.id)
+            is TocIntent.SaveTocRegex -> saveTocRegex(intent.regex)
+            is TocIntent.ExportBookmarks -> exportCurrentBookBookmarks(intent.uri, intent.isMarkdown)
+            is TocIntent.UpdateBookmark -> updateBookmark(intent.bookmark)
+            is TocIntent.DeleteBookmark -> deleteBookmark(intent.bookmark)
+            is TocIntent.DownloadChapter -> downloadChapter(intent.id)
+            TocIntent.DownloadAll -> downloadAll()
+            TocIntent.DownloadSelected -> downloadSelected()
+            TocIntent.SelectAll -> selectAll()
+            TocIntent.InvertSelection -> invertSelection()
+            TocIntent.ClearSelection -> clearSelection()
+            TocIntent.SelectFromLast -> selectFromLast()
+            TocIntent.AddBookmarksForSelected -> addBookmarksForSelected()
+            TocIntent.ToggleUseReplace -> toggleUseReplace()
+            TocIntent.ToggleShowWordCount -> toggleShowWordCount()
+            TocIntent.ReverseToc -> reverseToc()
+            TocIntent.ToggleSplitLongChapter -> toggleSplitLongChapter()
+            TocIntent.ExpandAllVolumes -> expandAllVolumes()
+            TocIntent.CollapseAllVolumes -> collapseAllVolumes()
+        }
+    }
 
     fun reverseToc() = execute {
         val currentBook = bookState.value ?: return@execute
@@ -451,12 +588,10 @@ class TocViewModel(
         book.tocUrl = newRegex
         upBookTocRule(book) { error ->
             if (error != null) {
-                context.toastOnUi(
-                    context.getString(R.string.toc_rule_update_failed, error.localizedMessage)
-                )
+                showMessage(context.getString(R.string.toc_rule_update_failed, error.localizedMessage))
             }
             else {
-                context.toastOnUi(R.string.toc_rule_updated)
+                showMessage(R.string.toc_rule_updated)
                 if (ReadBook.book?.bookUrl == book.bookUrl) ReadBook.upMsg(null)
             }
         }
@@ -468,9 +603,9 @@ class TocViewModel(
         book.setSplitLongChapter(newState)
         upBookTocRule(book) { error ->
             if (error != null) {
-                context.toastOnUi(context.getString(R.string.setting_failed, error.localizedMessage))
+                showMessage(context.getString(R.string.setting_failed, error.localizedMessage))
             } else {
-                context.toastOnUi(
+                showMessage(
                     if (newState) R.string.split_long_chapters_enabled
                     else R.string.split_long_chapters_disabled
                 )
@@ -503,16 +638,16 @@ class TocViewModel(
             val book = bookState.value ?: return@launch
             val bookmarks = appDb.bookmarkDao.getByBook(book.name, book.author)
             if (bookmarks.isEmpty()) {
-                context.toastOnUi(R.string.no_bookmarks_to_export)
+                showMessage(R.string.no_bookmarks_to_export)
                 return@launch
             }
             BookmarkExporter.exportToUri(
                 context = getApplication(), fileUri = fileUri, bookmarks = bookmarks,
                 isMd = isMd, bookName = book.name, author = book.author
             )
-            context.toastOnUi(R.string.save_success)
+            showMessage(R.string.save_success)
         } catch (e: Exception) {
-            context.toastOnUi(context.getString(R.string.save_failed_with_error, e.message))
+            showMessage(context.getString(R.string.save_failed_with_error, e.message))
         }
     }
 
@@ -531,7 +666,7 @@ class TocViewModel(
             .toList()
 
         if (selectedItems.isEmpty()) {
-            context.toastOnUi(R.string.select_chapters)
+            showMessage(R.string.select_chapters)
             return@launch
         }
 
@@ -548,7 +683,7 @@ class TocViewModel(
         }
 
         appDb.bookmarkDao.insert(*bookmarks.toTypedArray())
-        context.toastOnUi(context.getString(R.string.bookmarks_added_count, bookmarks.size))
+        showMessage(context.getString(R.string.bookmarks_added_count, bookmarks.size))
         withContext(Dispatchers.Main) {
             clearSelection()
         }
@@ -561,9 +696,7 @@ class TocViewModel(
         execute {
             cacheBookChaptersUseCase.execute(book.bookUrl, indices)
         }.onSuccess { count ->
-            getApplication<Application>().toastOnUi(
-                context.getString(R.string.start_downloading_chapters, count)
-            )
+            showMessage(context.getString(R.string.start_downloading_chapters, count))
             clearSelection()
         }
     }
@@ -573,7 +706,7 @@ class TocViewModel(
         execute {
             cacheBookChaptersUseCase.execute(book.bookUrl, listOf(index))
         }.onSuccess {
-            getApplication<Application>().toastOnUi(R.string.start_downloading_chapter)
+            showMessage(R.string.start_downloading_chapter)
         }
     }
 
@@ -584,17 +717,21 @@ class TocViewModel(
             .map { it.id }
 
         if (targetIndices.isEmpty()) {
-            getApplication<Application>().toastOnUi(R.string.all_chapters_cached)
+            showMessage(R.string.all_chapters_cached)
             return
         }
 
         execute {
             cacheBookChaptersUseCase.execute(book.bookUrl, targetIndices)
         }.onSuccess { count ->
-            getApplication<Application>().toastOnUi(
-                context.getString(R.string.start_downloading_remaining_chapters, count)
-            )
+            showMessage(context.getString(R.string.start_downloading_remaining_chapters, count))
         }
+    }
+
+    private fun showMessage(resId: Int) = showMessage(context.getString(resId))
+
+    private fun showMessage(message: String) {
+        _effects.tryEmit(TocEffect.ShowMessage(message))
     }
 
     private fun List<BookChapter>.groupAndReverseVolumes(): List<BookChapter> {
@@ -622,8 +759,8 @@ class TocViewModel(
             titleCacheJob?.cancel()
             titleCacheJob = null
             lastTitleCacheKey = null
-            if (titleReplaceCache.value.isNotEmpty()) {
-                titleReplaceCache.value = emptyMap()
+            if (titleReplaceState.value != TitleReplaceState()) {
+                titleReplaceState.value = TitleReplaceState()
             }
             return
         }
@@ -643,23 +780,110 @@ class TocViewModel(
             useReplace = true,
             rulesFingerprint = rulesFingerprint,
             chineseConverterType = AppConfig.chineseConverterType,
-            chapterCount = chapters.size
+            chapterCount = chapters.size,
+            chaptersFingerprint = chapters.fold(0L) { fingerprint, chapter ->
+                fingerprint + 31L * chapter.index + chapter.title.hashCode()
+            }
         )
 
+        val currentTitleState = titleReplaceState.value
         val isJobActive = titleCacheJob?.isActive == true
-        if (key == lastTitleCacheKey && (isJobActive || titleReplaceCache.value.isNotEmpty())) {
+        val isCurrentCacheReady =
+            currentTitleState.cacheKey == key &&
+                    currentTitleState.completed == chapters.size
+        if (key == lastTitleCacheKey &&
+            (isJobActive || currentTitleState.isRunning || isCurrentCacheReady)
+        ) {
+            return
+        }
+
+        TocTitleCache.get(key)?.let { cachedTitles ->
+            lastTitleCacheKey = key
+            titleCacheJob?.cancel()
+            titleCacheJob = null
+            titleReplaceState.value = TitleReplaceState(
+                cacheKey = key,
+                titles = cachedTitles,
+                completed = chapters.size,
+                total = chapters.size,
+                isRunning = false
+            )
             return
         }
 
         lastTitleCacheKey = key
         titleCacheJob?.cancel()
-        titleReplaceCache.value = emptyMap()
+        titleReplaceState.value = TitleReplaceState(
+            cacheKey = key,
+            total = chapters.size,
+            isRunning = chapters.isNotEmpty()
+        )
+        if (chapters.isEmpty()) {
+            titleCacheJob = null
+            return
+        }
+
         titleCacheJob = viewModelScope.launch(Dispatchers.Default) {
             val newCache = HashMap<Int, String>(chapters.size)
-            chapters.forEach { chapter ->
-                newCache[chapter.index] = chapter.getDisplayTitle(replaceRules, true)
+            val workerCount = minOf(TITLE_REPLACE_WORKER_COUNT, chapters.size)
+            val publishBatchSize =
+                (chapters.size / MAX_TITLE_REPLACE_PROGRESS_UPDATES).coerceAtLeast(1)
+            var completed = 0
+            var lastPublishedCompleted = 0
+            var lastPublishedAt = System.nanoTime()
+
+            chapters.asFlow()
+                .flatMapMerge(concurrency = workerCount) { chapter ->
+                    flow {
+                        emit(chapter.index to chapter.getDisplayTitle(replaceRules, true))
+                    }
+                }
+                .collect { (chapterIndex, displayTitle) ->
+                    newCache[chapterIndex] = displayTitle
+                    completed++
+                    val now = System.nanoTime()
+                    val shouldPublish = completed < chapters.size &&
+                            (completed - lastPublishedCompleted >= publishBatchSize ||
+                                    now - lastPublishedAt >= TITLE_REPLACE_UPDATE_INTERVAL_NANOS)
+                    if (shouldPublish) {
+                        titleReplaceState.update { current ->
+                            if (current.cacheKey != key) {
+                                current
+                            } else {
+                                TitleReplaceState(
+                                    cacheKey = key,
+                                    titles = HashMap(newCache),
+                                    completed = completed,
+                                    total = chapters.size,
+                                    isRunning = true
+                                )
+                            }
+                        }
+                        lastPublishedCompleted = completed
+                        lastPublishedAt = now
+                    }
+                }
+
+            titleReplaceState.update { current ->
+                if (current.cacheKey != key) {
+                    current
+                } else {
+                    TitleReplaceState(
+                        cacheKey = key,
+                        titles = newCache,
+                        completed = chapters.size,
+                        total = chapters.size,
+                        isRunning = false
+                    )
+                }
             }
-            titleReplaceCache.value = newCache
+            TocTitleCache.put(key, newCache)
         }
+    }
+
+    private companion object {
+        const val TITLE_REPLACE_WORKER_COUNT = 4
+        const val MAX_TITLE_REPLACE_PROGRESS_UPDATES = 100
+        const val TITLE_REPLACE_UPDATE_INTERVAL_NANOS = 100_000_000L
     }
 }

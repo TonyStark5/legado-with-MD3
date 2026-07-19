@@ -87,9 +87,9 @@ object ReadConfig {
     var showSelectMenuIcon
         get() = ReadMenuConfig.showSelectMenuIcon
         set(value) { ReadMenuConfig.showSelectMenuIcon = value }
-    var textSelectMenuFilter
-        get() = ReadMenuConfig.textSelectMenuFilter
-        set(value) { ReadMenuConfig.textSelectMenuFilter = value }
+    var textSelectMenuConfig
+        get() = ReadMenuConfig.textSelectMenuConfig
+        set(value) { ReadMenuConfig.textSelectMenuConfig = value }
     var showReadTitleAddition
         get() = ReadMenuConfig.showReadTitleAddition
         set(value) { ReadMenuConfig.showReadTitleAddition = value }
@@ -171,6 +171,9 @@ object ReadConfig {
     var ttsTimer
         get() = ReadTtsConfig.ttsTimer
         set(value) { ReadTtsConfig.ttsTimer = value }
+    var ttsParagraphInterval
+        get() = ReadTtsConfig.ttsParagraphInterval
+        set(value) { ReadTtsConfig.ttsParagraphInterval = value }
     var ignoreAudioFocus
         get() = ReadTtsConfig.ignoreAudioFocus
         set(value) { ReadTtsConfig.ignoreAudioFocus = value }
@@ -180,6 +183,9 @@ object ReadConfig {
     var readAloudWakeLock
         get() = ReadTtsConfig.readAloudWakeLock
         set(value) { ReadTtsConfig.readAloudWakeLock = value }
+    var showReadAloudCapsule
+        get() = ReadTtsConfig.showReadAloudCapsule
+        set(value) { ReadTtsConfig.showReadAloudCapsule = value }
     var mediaButtonPerNext
         get() = ReadTtsConfig.mediaButtonPerNext
         set(value) { ReadTtsConfig.mediaButtonPerNext = value }
@@ -195,6 +201,12 @@ object ReadConfig {
     var contentSelectSpeakMod
         get() = ReadTtsConfig.contentSelectSpeakMod
         set(value) { ReadTtsConfig.contentSelectSpeakMod = value }
+    var speechAnalysisMode
+        get() = ReadTtsConfig.speechAnalysisMode
+        set(value) { ReadTtsConfig.speechAnalysisMode = value }
+    var useMultiSpeaker
+        get() = ReadTtsConfig.useMultiSpeaker
+        set(value) { ReadTtsConfig.useMultiSpeaker = value }
     var audioPreDownloadNum
         get() = ReadTtsConfig.audioPreDownloadNum
         set(value) { ReadTtsConfig.audioPreDownloadNum = value }
@@ -214,6 +226,9 @@ object ReadConfig {
     var autoChangeSource
         get() = ReadDataConfig.autoChangeSource
         set(value) { ReadDataConfig.autoChangeSource = value }
+    var autoSuggestDayNight
+        get() = ReadDataConfig.autoSuggestDayNight
+        set(value) { ReadDataConfig.autoSuggestDayNight = value }
     var defaultSourceChangeAll
         get() = ReadDataConfig.defaultSourceChangeAll
         set(value) { ReadDataConfig.defaultSourceChangeAll = value }
@@ -271,7 +286,6 @@ object ReadConfig {
             progressBarBehavior = preferences.progressBarBehavior
             expandTextMenu = preferences.expandTextMenu
             showSelectMenuIcon = preferences.showSelectMenuIcon
-            textSelectMenuFilter = preferences.textSelectMenuFilter
             showReadTitleAddition = preferences.showReadTitleAddition
             showMenuIcon = preferences.showMenuIcon
             clickActionTL = preferences.clickActionTL
@@ -299,6 +313,7 @@ object ReadConfig {
             keepLight = preferences.keepLight
             screenOrientation = preferences.screenOrientation
             autoChangeSource = preferences.autoChangeSource
+            autoSuggestDayNight = preferences.autoSuggestDayNight
             defaultSourceChangeAll = preferences.defaultSourceChangeAll
             tocUiUseReplace = preferences.tocUiUseReplace
             tocCountWords = preferences.tocCountWords

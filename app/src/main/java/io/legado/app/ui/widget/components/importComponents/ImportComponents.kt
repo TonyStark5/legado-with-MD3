@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AssistChip
@@ -43,7 +44,6 @@ import io.legado.app.R
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
-import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
 import io.legado.app.ui.widget.components.button.series.SmallPlainButton
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.card.SelectionItemCard
@@ -82,7 +82,7 @@ fun SourceInputDialog(
 
                 if (historyValues.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    AppText("历史记录:", style = LegadoTheme.typography.labelSmall)
+                    AppText(stringResource(R.string.history_label), style = LegadoTheme.typography.labelSmall)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(historyValues) { history ->
                             AssistChip(
@@ -186,22 +186,31 @@ fun <T> BatchImportDialog(
                 SmallPlainButton(
                     onClick = { editingIndex = null },
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回"
+                    contentDescription = stringResource(R.string.back)
                 )
             }
         } else {
-            null
-        },
-        endAction = if (!isEditing) {
             {
                 Row {
                     topBarActions()
                     SmallPlainButton(
                         onClick = { onToggleAll(!allSelected) },
                         icon = Icons.Default.SelectAll,
-                        contentDescription = if (allSelected) "全不选" else "全选"
+                        contentDescription = stringResource(if (allSelected) R.string.deselect_all else R.string.select_all)
                     )
                 }
+            }
+        },
+        endAction = if (!isEditing && selectedCount > 0) {
+            {
+                SmallPlainButton(
+                    onClick = {
+                        val selectedData = currentState.items.filter { it.isSelected }.map { it.data }
+                        onConfirm(selectedData)
+                    },
+                    icon = Icons.Default.FileDownload,
+                    text = stringResource(R.string.import_action)
+                )
             }
         } else {
             null
@@ -244,19 +253,11 @@ fun <T> BatchImportDialog(
             }
         }
 
-        ConfirmDismissButtonsRow(
+        Spacer(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(top = 8.dp, bottom = 8.dp),
-            onDismiss = onDismissRequest,
-            onConfirm = {
-                val selectedData = currentState.items.filter { it.isSelected }.map { it.data }
-                onConfirm(selectedData)
-            },
-            dismissText = "取消",
-            confirmText = "导入",
-            confirmEnabled = selectedCount > 0
+                .height(8.dp)
         )
     }
 }
@@ -271,7 +272,7 @@ private fun <T> BatchImportJsonEditContent(
     val jsonObject = remember(version) { data.toImportJsonObject() }
 
     if (jsonObject == null) {
-        AppText("不支持编辑")
+        AppText(stringResource(R.string.edit_not_supported))
         return
     }
 
@@ -356,10 +357,10 @@ fun ImportItemRow(
         trailingAction = {
             AppText(
                 text = when (status) {
-                    ImportStatus.New -> "新增"
-                    ImportStatus.Update -> "更新"
-                    ImportStatus.Existing -> "已有"
-                    ImportStatus.Error -> "错误"
+                    ImportStatus.New -> stringResource(R.string.import_status_new)
+                    ImportStatus.Update -> stringResource(R.string.import_status_update)
+                    ImportStatus.Existing -> stringResource(R.string.import_status_existing)
+                    ImportStatus.Error -> stringResource(R.string.import_status_error)
                 },
                 style = LegadoTheme.typography.labelMedium,
                 color = when (status) {
@@ -374,7 +375,7 @@ fun ImportItemRow(
             SmallPlainButton(
                 onClick = onInfoClick,
                 icon = Icons.Default.Info,
-                contentDescription = "详情"
+                contentDescription = stringResource(R.string.details)
             )
         }
     )

@@ -7,35 +7,55 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
 import android.util.Base64
+import androidx.core.graphics.toColorInt
 import androidx.lifecycle.viewModelScope
 import io.legado.app.BuildConfig
 import io.legado.app.R
-import io.legado.app.constant.AppConst
 import io.legado.app.base.BaseViewModel
+import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.BookType
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.constant.ReadMenuBlurMode
-import io.legado.app.constant.Status
+import io.legado.app.domain.model.readaloud.ReadAloudSessionStatus
 import io.legado.app.data.appDb
+import io.legado.app.data.entities.AiPromptPreset
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
+import io.legado.app.data.entities.BookContentProcess
 import io.legado.app.data.entities.BookProgress
 import io.legado.app.data.entities.Bookmark
 import io.legado.app.data.entities.HighlightRule
 import io.legado.app.data.entities.HttpTTS
 import io.legado.app.data.local.preferences.LocalPreferencesKeys
-import io.legado.app.data.local.preferences.LocalPreferencesRepository
+import io.legado.app.data.repository.SettingsRepository
 import io.legado.app.data.repository.HighlightRuleRepository
 import io.legado.app.data.repository.ReadAloudSettingsRepository
 import io.legado.app.data.repository.ReadBookStyleConfigRepository
+import io.legado.app.data.repository.ReplaceRuleRepository
 import io.legado.app.data.repository.ReadPreferences
 import io.legado.app.data.repository.ReadSettingsRepository
 import io.legado.app.data.repository.UploadRepository
+import io.legado.app.domain.gateway.BookContentProcessGateway
+import io.legado.app.domain.gateway.AiArtifactGateway
+import io.legado.app.domain.gateway.AiPromptPresetGateway
+import io.legado.app.domain.gateway.AiProfileGateway
+import io.legado.app.domain.model.TextProcessAction
+import io.legado.app.domain.model.TextProcessAnchor
+import io.legado.app.domain.model.AiTaskType
+import io.legado.app.domain.model.PlaybackTimer
 import io.legado.app.domain.model.ReadingProgress
+import io.legado.app.domain.model.readaloud.ReadAloudVoice
+import io.legado.app.domain.model.readaloud.VoiceCatalogEntry
+import io.legado.app.domain.usecase.AiTextFactoryUseCase
+import io.legado.app.domain.usecase.ChangeBookSourceUseCase
+import io.legado.app.domain.usecase.CleanSelectedTextUseCase
+import io.legado.app.domain.usecase.GenerateChapterSummaryUseCase
 import io.legado.app.domain.usecase.GetReadingProgressUseCase
+import io.legado.app.domain.usecase.SaveBookContentProcessUseCase
+import io.legado.app.domain.usecase.SyncReadAloudVoicesUseCase
 import io.legado.app.domain.usecase.UploadReadingProgressUseCase
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.DefaultData
@@ -58,14 +78,18 @@ import io.legado.app.help.source.getSourceType
 import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.model.ImageProvider
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudSessionStore
 import io.legado.app.model.ReadBook
 import io.legado.app.model.SourceCallBack
+import io.legado.app.model.activeReadAloudProgress
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setChapter
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setCoroutineContext
 import io.legado.app.model.localBook.LocalBook
+import io.legado.app.model.translation.TranslationManager
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.ui.book.changesource.ChangeSourceConfig
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.provider.TextChapterLayout
@@ -78,8 +102,10 @@ import io.legado.app.ui.widget.components.importComponents.ImportItemWrapper
 import io.legado.app.ui.widget.components.importComponents.ImportStatus
 import io.legado.app.utils.GSON
 import io.legado.app.utils.ImageSaveUtils
+import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.StringUtils
+import io.legado.app.utils.fromJsonArray
 import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.hexString
 import io.legado.app.utils.isAbsUrl
@@ -92,9 +118,9 @@ import io.legado.app.utils.openUrl
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.sendToClip
 import io.legado.app.utils.toStringArray
-import io.legado.app.utils.toastOnUi
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.Job
@@ -111,6 +137,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onCompletion
+import org.json.JSONObject
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onEmpty
 import kotlinx.coroutines.flow.onStart
@@ -118,9 +145,13 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.FileNotFoundException
-import java.net.URLEncoder
+import java.util.Date
+import java.util.UUID
 import kotlin.coroutines.coroutineContext
+import kotlin.time.Duration.Companion.milliseconds
+import androidx.core.graphics.ColorUtils as AndroidColorUtils
 
 /**
  * 阅读界面 ViewModel — MVI/UDF 架构
@@ -136,9 +167,21 @@ class ReadBookViewModel(
     private val readSettingsRepository: ReadSettingsRepository,
     private val readBookStyleConfigRepository: ReadBookStyleConfigRepository,
     private val readAloudSettingsRepository: ReadAloudSettingsRepository,
-    private val localPreferencesRepository: LocalPreferencesRepository,
+    private val localPreferencesRepository: SettingsRepository,
     private val highlightRuleRepository: HighlightRuleRepository,
     private val uploadRepository: UploadRepository,
+    private val changeBookSourceUseCase: ChangeBookSourceUseCase,
+    private val generateChapterSummaryUseCase: GenerateChapterSummaryUseCase,
+    private val cleanSelectedTextUseCase: CleanSelectedTextUseCase,
+    private val aiTextFactoryUseCase: AiTextFactoryUseCase,
+    private val saveBookContentProcessUseCase: SaveBookContentProcessUseCase,
+    private val bookContentProcessGateway: BookContentProcessGateway,
+    private val aiArtifactGateway: AiArtifactGateway,
+    private val aiPromptPresetGateway: AiPromptPresetGateway,
+    private val aiProfileGateway: AiProfileGateway,
+    private val syncReadAloudVoicesUseCase: SyncReadAloudVoicesUseCase,
+    private val readAloudSessionStore: ReadAloudSessionStore,
+    private val replaceRuleRepository: ReplaceRuleRepository,
 ) : BaseViewModel(application), ReadBook.CallBack {
 
     // --- MVI State ---
@@ -148,6 +191,14 @@ class ReadBookViewModel(
 
     private val _effects = MutableSharedFlow<ReadBookEffect>(extraBufferCapacity = 16)
     val effects = _effects.asSharedFlow()
+
+    private val _readAloudProgress = MutableStateFlow(
+        activeReadAloudProgress(
+            isPlaying = BaseReadAloudService.isPlay(),
+            currentProgress = BaseReadAloudService.currentProgress,
+        )
+    )
+    val readAloudProgress = _readAloudProgress.asStateFlow()
 
     private suspend fun emitEffectWhenSubscribed(effect: ReadBookEffect) {
         _effects.subscriptionCount.first { it > 0 }
@@ -172,6 +223,11 @@ class ReadBookViewModel(
     private var pendingBooksDirReloadChapterList: Boolean = false
     private var pendingContentEditCursorOffset: Int? = null
     private var pendingContentEditAnchor: String? = null
+    private var chapterSummaryJob: Job? = null
+    private var aiTextCleanJob: Job? = null
+    private var aiTextRewriteJob: Job? = null
+    private var pendingAiTextCleanRequest: PendingAiTextCleanRequest? = null
+    private var pendingAiTextRewriteRequest: PendingAiTextRewriteRequest? = null
 
     val isInitFinish: Boolean get() = _uiState.value.isInitFinish
 
@@ -186,6 +242,7 @@ class ReadBookViewModel(
         collectReadPreferences()
         collectReadAloudPreferences()
         collectEventBus()
+        execute { syncConfiguredTtsVoices() }
     }
 
     // --- MVI Intent Dispatcher ---
@@ -197,6 +254,8 @@ class ReadBookViewModel(
                 justInitData = true
             }
             is ReadBookIntent.InitReadBookConfig -> initReadBookConfig(intent.intent)
+            is ReadBookIntent.CheckSwitchDayNight -> checkSwitchDayNight(intent.lux)
+            is ReadBookIntent.DismissReminder -> dismissReminder()
             is ReadBookIntent.NextPage -> ReadBook.moveToNextPage()
             is ReadBookIntent.PrevPage -> ReadBook.moveToPrevPage()
             is ReadBookIntent.NextChapter -> ReadBook.moveToNextChapter(upContent = true)
@@ -326,7 +385,79 @@ class ReadBookViewModel(
             is ReadBookIntent.RefreshAllChapters -> refreshAllChapters()
             is ReadBookIntent.RefreshContentAfter -> refreshContentAfter()
             is ReadBookIntent.ChangeReplaceRule -> changeReplaceRule(intent.enabled)
+            is ReadBookIntent.DisableEffectiveReplace -> viewModelScope.launch {
+                replaceRuleRepository.insert(intent.rule.copy(isEnabled = false))
+            }
+            ReadBookIntent.DisableChineseConverter -> {
+                handleConfigUpdate(ConfigUpdate.ChineseConverterType(0))
+            }
+            ReadBookIntent.DisableReSegment -> {
+                ReadBook.book?.setReSegment(false)
+                ReadBook.loadContent(false)
+                _uiState.update { it.copy(reSegment = false) }
+            }
             is ReadBookIntent.ToggleTranslation -> toggleTranslation()
+            is ReadBookIntent.OpenChapterSummary -> openChapterSummary()
+            is ReadBookIntent.OpenAiCurrentChapterRewrite -> openAiCurrentChapterRewrite()
+            is ReadBookIntent.RetryChapterSummary -> retryChapterSummary()
+            is ReadBookIntent.LoadContentProcesses -> loadContentProcesses()
+            is ReadBookIntent.ToggleContentProcess -> toggleContentProcess(intent.id, intent.enabled)
+            is ReadBookIntent.RequestDeleteContentProcess -> _uiState.update {
+                it.copy(
+                    contentProcessConfig = it.contentProcessConfig.copy(
+                        deleteItem = intent.item
+                    )
+                )
+            }
+            is ReadBookIntent.ConfirmDeleteContentProcess -> deletePendingContentProcess()
+            is ReadBookIntent.DismissDeleteContentProcess -> _uiState.update {
+                it.copy(
+                    contentProcessConfig = it.contentProcessConfig.copy(deleteItem = null)
+                )
+            }
+            is ReadBookIntent.SelectAiRewritePreset -> selectAiRewritePreset(intent.presetId)
+            is ReadBookIntent.SetAiRewriteTemporaryInstruction -> setAiRewriteTemporaryInstruction(
+                intent.instruction
+            )
+            is ReadBookIntent.SelectAiRewriteHistory -> selectAiRewriteHistory(intent.artifactId)
+            is ReadBookIntent.GenerateAiTextRewrite -> generateSelectedAiTextRewrite()
+            is ReadBookIntent.RetryAiTextRewrite -> retryAiTextRewrite()
+            is ReadBookIntent.ConfirmAiTextRewrite -> confirmAiTextRewrite()
+            is ReadBookIntent.OpenAiRewritePresetConfig -> openAiRewritePresetConfig()
+            is ReadBookIntent.CloseAiRewritePresetConfig -> closeAiRewritePresetConfig()
+            is ReadBookIntent.AddAiRewritePreset -> startAddAiRewritePreset()
+            is ReadBookIntent.EditAiRewritePreset -> startEditAiRewritePreset(intent.preset)
+            is ReadBookIntent.SetAiRewritePresetName -> _uiState.update {
+                it.copy(
+                    aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                        editingName = intent.name,
+                        errorMessage = null,
+                    )
+                )
+            }
+            is ReadBookIntent.SetAiRewritePresetInstruction -> _uiState.update {
+                it.copy(
+                    aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                        editingInstruction = intent.instruction,
+                        errorMessage = null,
+                    )
+                )
+            }
+            is ReadBookIntent.SaveAiRewritePreset -> saveAiRewritePreset()
+            is ReadBookIntent.CancelAiRewritePresetEdit -> clearAiRewritePresetDraft()
+            is ReadBookIntent.RequestDeleteAiRewritePreset -> _uiState.update {
+                it.copy(
+                    aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                        deletePreset = intent.preset
+                    )
+                )
+            }
+            is ReadBookIntent.ConfirmDeleteAiRewritePreset -> deleteAiRewritePreset()
+            is ReadBookIntent.DismissDeleteAiRewritePreset -> _uiState.update {
+                it.copy(
+                    aiRewritePresetConfig = it.aiRewritePresetConfig.copy(deletePreset = null)
+                )
+            }
             is ReadBookIntent.ChangeSourceBook -> changeTo(intent.book)
             is ReadBookIntent.ChangeSource -> changeTo(intent.book, intent.toc)
             is ReadBookIntent.AddSourceAsNewBook -> addToBookshelf(intent.book, intent.toc)
@@ -381,37 +512,72 @@ class ReadBookViewModel(
             }
 
             is ReadBookIntent.ShowSheet -> {
-                if (intent.sheet is ReadBookSheet.Bookmark) {
-                    // Bookmark is shown as a menu route, not a sheet
-                    openReadMenuRoute(ReadBookMenuRoute.Bookmark(intent.sheet.bookmark))
-                } else if (intent.sheet is ReadBookSheet.HighlightRuleConfig) {
+                if (intent.sheet is ReadBookSheet.HighlightRuleConfig) {
                     loadHighlightRules()
                     _uiState.update { it.copy(activeSheet = intent.sheet) }
+                } else if (intent.sheet is ReadBookSheet.ContentProcesses) {
+                    _uiState.update { it.copy(activeSheet = intent.sheet) }
+                    loadContentProcesses()
+                } else if (intent.sheet is ReadBookSheet.AiRewritePresetConfig) {
+                    openAiRewritePresetConfig()
                 } else {
                     _uiState.update { it.copy(activeSheet = intent.sheet) }
                 }
             }
-            is ReadBookIntent.DismissSheet -> _uiState.update {
-                if (it.activeSheet is ReadBookSheet.ContentEdit) {
-                    it.copy(
-                        activeSheet = null,
-                        contentEditText = "",
-                        contentEditTitle = "",
-                        contentEditCursorOffset = 0,
-                        contentEditLoading = false,
-                        contentEditSaveToSource = false,
-                    )
-                } else if (it.activeSheet is ReadBookSheet.HighlightRuleConfig) {
-                    it.copy(
-                        activeSheet = null,
-                        highlightRuleConfig = it.highlightRuleConfig.copy(
-                            editingRule = null,
-                            showNewRule = false,
-                            deleteRule = null,
-                        ),
-                    )
-                } else {
-                    it.copy(activeSheet = null)
+            is ReadBookIntent.DismissSheet -> {
+                when (_uiState.value.activeSheet) {
+                    is ReadBookSheet.ChapterSummary -> chapterSummaryJob?.cancel()
+                    is ReadBookSheet.AiTextClean -> {
+                        aiTextCleanJob?.cancel()
+                        pendingAiTextCleanRequest = null
+                    }
+                    else -> Unit
+                }
+                _uiState.update {
+                    if (it.activeSheet is ReadBookSheet.ChapterSummary) {
+                        it.copy(
+                            activeSheet = null,
+                            chapterSummary = ChapterSummaryUiState(),
+                        )
+                    } else if (it.activeSheet is ReadBookSheet.AiTextClean) {
+                        it.copy(
+                            activeSheet = null,
+                            aiTextClean = AiTextCleanUiState(),
+                        )
+                    } else if (it.activeSheet is ReadBookSheet.AiTextRewrite) {
+                        it.copy(activeSheet = null)
+                    } else if (it.activeSheet is ReadBookSheet.AiRewritePresetConfig) {
+                        it.copy(
+                            activeSheet = null,
+                            aiRewritePresetConfig = AiRewritePresetConfigUiState(),
+                        )
+                    } else if (it.activeSheet is ReadBookSheet.ContentEdit) {
+                        it.copy(
+                            activeSheet = null,
+                            contentEditText = "",
+                            contentEditTitle = "",
+                            contentEditCursorOffset = 0,
+                            contentEditLoading = false,
+                            contentEditSaveToSource = false,
+                        )
+                    } else if (it.activeSheet is ReadBookSheet.HighlightRuleConfig) {
+                        it.copy(
+                            activeSheet = null,
+                            highlightRuleConfig = it.highlightRuleConfig.copy(
+                                editingRule = null,
+                                showNewRule = false,
+                                deleteRule = null,
+                                importState = BaseImportUiState.Idle,
+                            ),
+                        )
+                    } else if (it.activeSheet is ReadBookSheet.ContentProcesses) {
+                        it.copy(
+                            activeSheet = null,
+                            contentProcessConfig = ContentProcessConfigUiState(),
+                        )
+                    } else {
+                        it.copy(activeSheet = null)
+                    }
                 }
             }
             is ReadBookIntent.SetActiveSheet -> _uiState.update {
@@ -448,6 +614,7 @@ class ReadBookViewModel(
                 }
             }
             is ReadBookIntent.OpenChapterUrl -> openChapterUrl()
+            is ReadBookIntent.SourceCustomButton -> runSourceCustomButton(intent.longClick)
             is ReadBookIntent.ToggleReadUrlInBrowser -> toggleReadUrlInBrowser()
             is ReadBookIntent.OpenContentEdit -> openContentEdit()
             is ReadBookIntent.LoadContentEdit -> loadContentEdit()
@@ -480,7 +647,11 @@ class ReadBookViewModel(
 
             is ReadBookIntent.MenuCoverProgress -> {
                 ReadBook.book?.let {
-                    ReadBook.uploadProgress(true) { context.toastOnUi(R.string.upload_book_success) }
+                    ReadBook.uploadProgress(true) {
+                        _effects.tryEmit(
+                            ReadBookEffect.ShowToast(context.getString(R.string.upload_book_success))
+                        )
+                    }
                 }
             }
 
@@ -494,7 +665,7 @@ class ReadBookViewModel(
                             textChapter.chapter.getFileName("nr")
                         )
                     ) {
-                        context.toastOnUi("未找到可移除的重复标题")
+                        _effects.tryEmit(ReadBookEffect.ShowToast("未找到可移除的重复标题"))
                     }
                 }
                 reverseRemoveSameTitle()
@@ -526,7 +697,8 @@ class ReadBookViewModel(
             }
             is ReadBookIntent.MenuTocRegex -> {
                 closeReadMenu()
-                _effects.tryEmit(ReadBookEffect.MenuTocRegex(ReadBook.book?.tocUrl))
+                val book = ReadBook.book
+                _effects.tryEmit(ReadBookEffect.MenuTocRegex(book?.bookUrl ?: "", book?.tocUrl))
             }
             is ReadBookIntent.TocRegexResult -> {
                 ReadBook.book?.let {
@@ -572,8 +744,12 @@ class ReadBookViewModel(
 
             is ReadBookIntent.MenuEnableReplace -> {
                 ReadBook.book?.let {
-                    it.setUseReplaceRule(!it.getUseReplaceRule())
+                    val enabled = !it.getUseReplaceRule()
+                    it.setUseReplaceRule(enabled)
                     ReadBook.saveRead()
+                    _uiState.update { state ->
+                        state.copy(useReplaceRule = enabled, replaceRuleEnabled = enabled)
+                    }
                     replaceRuleChanged()
                 }
             }
@@ -656,6 +832,39 @@ class ReadBookViewModel(
             is ReadBookIntent.DismissDeleteHighlightRule -> _uiState.update {
                 it.copy(highlightRuleConfig = it.highlightRuleConfig.copy(deleteRule = null))
             }
+            is ReadBookIntent.MoveHighlightRule -> moveHighlightRule(intent.from, intent.to)
+            is ReadBookIntent.SaveHighlightRuleOrder -> {
+                saveHighlightRules(_uiState.value.highlightRuleConfig.rules)
+            }
+            is ReadBookIntent.ImportHighlightRuleSource -> {
+                importHighlightRuleSource(intent.text)
+            }
+            is ReadBookIntent.OpenHighlightRuleImportPicker -> {
+                _effects.tryEmit(ReadBookEffect.OpenHighlightRuleImportPicker)
+            }
+            is ReadBookIntent.HighlightRuleImportFileSelected -> {
+                importHighlightRuleFile(intent.uri)
+            }
+            is ReadBookIntent.CancelHighlightRuleImport -> cancelHighlightRuleImport()
+            is ReadBookIntent.ToggleHighlightRuleImportSelection -> {
+                toggleHighlightRuleImportSelection(intent.index)
+            }
+            is ReadBookIntent.ToggleHighlightRuleImportAll -> {
+                toggleHighlightRuleImportAll(intent.isSelected)
+            }
+            is ReadBookIntent.UpdateHighlightRuleImportItem -> {
+                updateHighlightRuleImportItem(intent.index, intent.rule)
+            }
+            is ReadBookIntent.SaveImportedHighlightRules -> saveImportedHighlightRules()
+            is ReadBookIntent.ExportHighlightRules -> {
+                _effects.tryEmit(ReadBookEffect.OpenHighlightRuleExportPicker)
+            }
+            is ReadBookIntent.ExportHighlightRulesAsUrl -> {
+                exportHighlightRulesAsUrl()
+            }
+            is ReadBookIntent.ExportHighlightRulesToFile -> {
+                exportHighlightRules(intent.uri)
+            }
             is ReadBookIntent.SaveMenuCustomIcon -> saveMenuCustomIcon(intent.id, intent.uri)
             is ReadBookIntent.SaveTitleBarCustomIcon -> saveTitleBarCustomIcon(intent.id, intent.uri)
             is ReadBookIntent.OpenMenuCustomIconPicker -> {
@@ -696,9 +905,17 @@ class ReadBookViewModel(
                 }
             }
 
-            is ReadBookIntent.TtsProgress -> _effects.tryEmit(ReadBookEffect.UpTtsAloudSpan(intent.chapterStart))
+            is ReadBookIntent.TtsProgress -> updateReadAloudProgress(intent.chapterStart)
             is ReadBookIntent.ReadAloudAction -> {
-                openReadMenuRoute(ReadBookMenuRoute.ReadAloud)
+                if (_uiState.value.defaultReadAloudInterface ==
+                    ReadAloudSettingsRepository.DEFAULT_INTERFACE_PLAYER
+                ) {
+                    _uiState.update {
+                        it.copy(menuState = ReadBookMenuState(), activeSheet = ReadBookSheet.ReadAloudPlayer)
+                    }
+                } else {
+                    openReadMenuRoute(ReadBookMenuRoute.ReadAloud)
+                }
             }
             is ReadBookIntent.ConfirmAddCurrentBookToBookshelf -> addCurrentBookToBookshelfAndFinish()
             is ReadBookIntent.ExitWithoutAddingCurrentBookToBookshelf -> removeCurrentNotShelfBookAndFinish()
@@ -722,6 +939,15 @@ class ReadBookViewModel(
                     it.copy(
                         preDownloadNum = ReadConfig.preDownloadNum,
                         activeSheet = ReadBookSheet.PreDownloadConfig,
+                    )
+                }
+            }
+
+            is ReadBookIntent.OpenParagraphIntervalPicker -> {
+                _uiState.update {
+                    it.copy(
+                        readAloudParagraphInterval = ReadConfig.ttsParagraphInterval,
+                        activeSheet = ReadBookSheet.ParagraphIntervalConfig,
                     )
                 }
             }
@@ -764,6 +990,15 @@ class ReadBookViewModel(
                     it.copy(
                         audioCacheCleanTime = intent.value,
                         activeSheet = ReadBookSheet.ReadAloudConfig,
+                    )
+                }
+            }
+
+            is ReadBookIntent.ApplyParagraphInterval -> {
+                ReadConfig.ttsParagraphInterval = intent.value
+                _uiState.update {
+                    it.copy(
+                        readAloudParagraphInterval = intent.value
                     )
                 }
             }
@@ -849,12 +1084,11 @@ class ReadBookViewModel(
             is ReadBookIntent.ExportAllHttpTtsAsUrl -> {
                 execute {
                     val json = exportHttpTtsJson()
-                    val url = uploadRepository.upload(
+                    uploadRepository.upload(
                         fileName = "httpTTS.json",
                         file = json,
                         contentType = "application/json"
                     )
-                    "legado://import/httpTTS?src=" + URLEncoder.encode(url, "UTF-8")
                 }.onSuccess { url ->
                     context.sendToClip(url)
                     _effects.tryEmit(ReadBookEffect.ShowToast(context.getString(R.string.copy_url)))
@@ -911,6 +1145,27 @@ class ReadBookViewModel(
             is ReadBookIntent.SetReadAloudWakeLock -> {
                 viewModelScope.launch { readAloudSettingsRepository.setReadAloudWakeLock(intent.value) }
             }
+            is ReadBookIntent.SetShowReadAloudCapsule -> {
+                viewModelScope.launch { readAloudSettingsRepository.setShowReadAloudCapsule(intent.value) }
+            }
+            ReadBookIntent.ResetReadAloudCapsulePosition -> {
+                _uiState.update { it.copy(
+                    readAloudCapsuleOffsetX = 0f,
+                    readAloudCapsuleOffsetY = 0f,
+                ) }
+                viewModelScope.launch {
+                    readAloudSettingsRepository.resetCapsulePosition()
+                }
+            }
+            is ReadBookIntent.SetReadAloudCapsulePosition -> {
+                _uiState.update { it.copy(
+                    readAloudCapsuleOffsetX = intent.x,
+                    readAloudCapsuleOffsetY = intent.y,
+                ) }
+                viewModelScope.launch {
+                    readAloudSettingsRepository.setCapsulePosition(intent.x, intent.y)
+                }
+            }
             is ReadBookIntent.SetReadAloudMediaButtonPerNext -> {
                 viewModelScope.launch { readAloudSettingsRepository.setMediaButtonPerNext(intent.value) }
             }
@@ -938,21 +1193,86 @@ class ReadBookViewModel(
             )
             is ReadBookIntent.ReadAloudNextChapter -> ReadBook.moveToNextChapter(true)
             is ReadBookIntent.SetReadAloudTtsTimer -> setReadAloudTtsTimer(intent.value)
-            is ReadBookIntent.SaveReadAloudTtsTimer -> {
-                viewModelScope.launch { readAloudSettingsRepository.saveTtsTimer(intent.value) }
-                _effects.tryEmit(ReadBookEffect.ShowToast(context.getString(R.string.save_success)))
-            }
             is ReadBookIntent.SetReadAloudTtsFollowSys -> {
                 viewModelScope.launch { readAloudSettingsRepository.setTtsFollowSys(intent.value) }
                 _uiState.update { it.copy(readAloudTtsFollowSys = intent.value) }
             }
             is ReadBookIntent.SetReadAloudTtsSpeechRate -> setReadAloudTtsSpeechRate(intent.value)
+            is ReadBookIntent.SetSpeechAnalysisMode -> {
+                viewModelScope.launch {
+                    if (intent.value != "rule") {
+                        val configured = aiProfileGateway.getTaskPreset(AiTaskType.ANALYZE_SPEECH)
+                            ?: aiProfileGateway.getTaskPreset(AiTaskType.CHAT)
+                        if (configured == null) {
+                            _effects.emit(ReadBookEffect.ShowToast(
+                                context.getString(R.string.speech_analysis_ai_model_required)
+                            ))
+                            return@launch
+                        }
+                    }
+                    readAloudSettingsRepository.setSpeechAnalysisMode(intent.value)
+                    _uiState.update { it.copy(speechAnalysisMode = intent.value) }
+                }
+            }
+            is ReadBookIntent.SetUseMultiSpeaker -> {
+                viewModelScope.launch {
+                    val shouldRestart = BaseReadAloudService.isRun
+                    val resumePlaying = shouldRestart && !BaseReadAloudService.pause
+                    val chapter = ReadBook.curTextChapter
+                    val chapterPosition = readAloudSessionStore.state.value.playback.chapterPosition
+                    readAloudSettingsRepository.setUseMultiSpeaker(intent.value)
+                    _uiState.update { it.copy(useMultiSpeaker = intent.value) }
+                    if (shouldRestart && chapter != null) {
+                        val pageIndex = chapter.getPageIndexByCharIndex(chapterPosition)
+                        val startPos = chapterPosition - chapter.getReadLength(pageIndex)
+                        ReadAloud.stop(context)
+                        val stopped = withTimeoutOrNull(2_000) {
+                            readAloudSessionStore.state.first {
+                                it.status == ReadAloudSessionStatus.Idle
+                            }
+                        }
+                        if (stopped == null) return@launch
+                        ReadAloud.refreshReadAloudClass()
+                        ReadAloud.play(
+                            context = context,
+                            play = resumePlaying,
+                            pageIndex = pageIndex,
+                            startPos = startPos.coerceAtLeast(0),
+                        )
+                    }
+                }
+            }
+            is ReadBookIntent.SetDefaultReadAloudInterface -> {
+                viewModelScope.launch {
+                    readAloudSettingsRepository.setDefaultInterface(intent.value)
+                }
+                _uiState.update { it.copy(defaultReadAloudInterface = intent.value) }
+            }
             is ReadBookIntent.OpenSystemTtsSettings -> {
                 _effects.tryEmit(ReadBookEffect.OpenSystemTtsSettings)
             }
             is ReadBookIntent.ClearTtsCache -> {
                 io.legado.app.utils.TTSCacheUtils.clearTtsCache()
                 _effects.tryEmit(ReadBookEffect.TtsCacheCleared(context.getString(R.string.clear_cache_success)))
+            }
+            ReadBookIntent.OpenTtsEnginesAndVoices -> {
+                _uiState.update { it.copy(activeSheet = null) }
+                _effects.tryEmit(ReadBookEffect.OpenTtsEnginesAndVoices)
+            }
+            ReadBookIntent.OpenBookVoiceCasting -> {
+                ReadBook.book?.bookUrl?.let { bookUrl ->
+                    _uiState.update { it.copy(activeSheet = null) }
+                    _effects.tryEmit(ReadBookEffect.OpenBookVoiceCasting(bookUrl))
+                }
+            }
+            ReadBookIntent.OpenReadAloudPlayer -> {
+                _uiState.update {
+                    it.copy(menuState = ReadBookMenuState(), activeSheet = ReadBookSheet.ReadAloudPlayer)
+                }
+            }
+            ReadBookIntent.OpenClassicReadAloudControls -> {
+                _uiState.update { it.copy(activeSheet = null) }
+                openReadMenuRoute(ReadBookMenuRoute.ReadAloud)
             }
 
             is ReadBookIntent.SelectFont -> selectFont(intent.path)
@@ -1078,13 +1398,8 @@ class ReadBookViewModel(
             is ReadBookIntent.TextActionBookmark -> {
                 _uiState.update {
                     it.copy(
-                        menuState = ReadBookMenuState(
-                            visible = true,
-                            routeStack = kotlinx.collections.immutable.persistentListOf(
-                                ReadBookMenuRoute.Main,
-                                ReadBookMenuRoute.Bookmark(intent.bookmark),
-                            ),
-                        ),
+                        menuState = ReadBookMenuState(),
+                        activeSheet = ReadBookSheet.Bookmark(intent.bookmark),
                     )
                 }
             }
@@ -1108,6 +1423,25 @@ class ReadBookViewModel(
 
             is ReadBookIntent.TextActionDict -> {
                 _uiState.update { it.copy(activeSheet = ReadBookSheet.Dict(intent.text)) }
+            }
+
+            is ReadBookIntent.OpenAiTextClean -> {
+                openAiTextClean(
+                    text = intent.text,
+                    chapterIndex = intent.chapterIndex,
+                    chapterPosition = intent.chapterPosition,
+                )
+            }
+
+            is ReadBookIntent.RetryAiTextClean -> retryAiTextClean()
+            is ReadBookIntent.ConfirmAiTextClean -> confirmAiTextClean()
+
+            is ReadBookIntent.OpenAiTextRewrite -> {
+                openAiTextRewrite(
+                    text = intent.text,
+                    chapterIndex = intent.chapterIndex,
+                    chapterPosition = intent.chapterPosition,
+                )
             }
 
             is ReadBookIntent.ApplySimulatedReading -> {
@@ -1144,9 +1478,8 @@ class ReadBookViewModel(
 
     private fun handleOnResume() {
         // Read time tracking
-        ReadBook.readStartTime = System.currentTimeMillis()
-        ReadBook.initReadTime()
-        ReadBook.startAutoSaveSession()
+        ReadBook.isUiActive = true
+        ReadBook.startReadSession()
 
         // Web book progress sync
         ReadBook.webBookProgress?.let {
@@ -1171,9 +1504,12 @@ class ReadBookViewModel(
         _effects.tryEmit(ReadBookEffect.StopAutoPage)
 
         // Read time tracking
+        ReadBook.isUiActive = false
         ReadBook.saveRead()
-        ReadBook.stopAutoSaveSession()
-        ReadBook.commitReadSession()
+        if (!BaseReadAloudService.isPlay()) {
+            ReadBook.stopAutoSaveSession()
+            ReadBook.commitReadSession()
+        }
         ReadBook.cancelPreDownloadTask()
 
         // View-layer
@@ -1207,8 +1543,11 @@ class ReadBookViewModel(
 
     private fun loadTtsEngineItems(onSuccess: (() -> Unit)? = null) {
         execute {
+            val systemTtsLabel = context.getString(R.string.system_tts)
+            val httpTtsList = appDb.httpTTSDao.all
+            syncConfiguredTtsVoices(systemTtsLabel, httpTtsList)
             buildList {
-                add(ReadBookTtsEngineItem(context.getString(R.string.system_tts), null))
+                add(ReadBookTtsEngineItem(systemTtsLabel, null))
                 sysEngines.forEach { engine ->
                     add(
                         ReadBookTtsEngineItem(
@@ -1217,7 +1556,7 @@ class ReadBookViewModel(
                         )
                     )
                 }
-                appDb.httpTTSDao.all.forEach { httpTts ->
+                httpTtsList.forEach { httpTts ->
                     add(
                         ReadBookTtsEngineItem(
                             title = httpTts.name,
@@ -1236,6 +1575,43 @@ class ReadBookViewModel(
             }
             onSuccess?.invoke()
         }
+    }
+
+    private suspend fun syncConfiguredTtsVoices(
+        systemTtsLabel: String = context.getString(R.string.system_tts),
+        httpTtsList: List<HttpTTS> = appDb.httpTTSDao.all,
+    ) {
+        syncReadAloudVoicesUseCase(
+            entries = buildList {
+                add(
+                    VoiceCatalogEntry(
+                        engineType = ReadAloudVoice.ENGINE_SYSTEM,
+                        engineId = "",
+                        displayName = systemTtsLabel,
+                    )
+                )
+                sysEngines.forEach { engine ->
+                    add(
+                        VoiceCatalogEntry(
+                            engineType = ReadAloudVoice.ENGINE_SYSTEM,
+                            engineId = engine.name,
+                            displayName = engine.label,
+                        )
+                    )
+                }
+                httpTtsList.forEach { httpTts ->
+                    add(
+                        VoiceCatalogEntry(
+                            engineType = ReadAloudVoice.ENGINE_HTTP,
+                            engineId = httpTts.id.toString(),
+                            displayName = httpTts.name,
+                            sourceRevision = httpTts.lastUpdateTime,
+                        )
+                    )
+                }
+            },
+            managedSources = setOf(ReadAloudVoice.MANAGED_BY_CONFIGURED_TTS),
+        )
     }
 
     private fun importHttpTtsSource(text: String) {
@@ -1485,7 +1861,12 @@ class ReadBookViewModel(
                 content = "",
             )
             withContext(Main) {
-                openReadMenuRoute(ReadBookMenuRoute.Bookmark(bookmark))
+                _uiState.update {
+                    it.copy(
+                        menuState = ReadBookMenuState(),
+                        activeSheet = ReadBookSheet.Bookmark(bookmark),
+                    )
+                }
             }
         }
     }
@@ -1620,6 +2001,7 @@ class ReadBookViewModel(
                         9 -> ConfigUpdateAction.InvalidateTextPage
                         10 -> ConfigUpdateAction.UpdateLayout
                         11 -> ConfigUpdateAction.SubmitRenderTask
+                        12 -> ConfigUpdateAction.RelayoutContent
                         else -> null
                     }
                 }.toSet()
@@ -1629,16 +2011,42 @@ class ReadBookViewModel(
             }
         }
         viewModelScope.launch {
-            eventFlow<Int>(EventBus.ALOUD_STATE).collect { state ->
-                _uiState.update {
-                    it.copy(
-                        isReadAloudRunning = state != Status.STOP,
-                        isReadAloudPaused = state == Status.PAUSE,
+            var previousStatus: ReadAloudSessionStatus? = null
+            readAloudSessionStore.state.collect { session ->
+                val status = session.status
+                val info = session.playback
+                _uiState.update { state ->
+                    state.copy(
+                        isReadAloudRunning = status != ReadAloudSessionStatus.Idle,
+                        isReadAloudPaused = status == ReadAloudSessionStatus.Paused,
+                        readAloudEngineName = info.engineName,
+                        readAloudCharacterName = info.characterName,
+                        readAloudRoleType = info.roleType,
+                        readAloudChapterPosition = info.chapterPosition,
+                        readAloudChapterLength = info.chapterLength,
+                        readAloudTtsTimer = session.timerMinutes,
                     )
                 }
-                if (state == Status.STOP || state == Status.PAUSE) {
+                if (previousStatus != null && previousStatus != status &&
+                    (status == ReadAloudSessionStatus.Idle ||
+                        status == ReadAloudSessionStatus.Paused)
+                ) {
+                    _readAloudProgress.value = null
                     _effects.tryEmit(ReadBookEffect.UpAloudState)
                 }
+                if (previousStatus != ReadAloudSessionStatus.Paused &&
+                    status == ReadAloudSessionStatus.Paused
+                ) {
+                    _effects.tryEmit(
+                        ReadBookEffect.ShowToast(context.getString(R.string.read_aloud_pause))
+                    )
+                }
+                previousStatus = status
+            }
+        }
+        viewModelScope.launch {
+            eventFlow<Int>(EventBus.READ_ALOUD_DS).collect { minute ->
+                _uiState.update { it.copy(readAloudTtsTimer = minute.coerceAtLeast(0)) }
             }
         }
         viewModelScope.launch {
@@ -1669,8 +2077,14 @@ class ReadBookViewModel(
         }
         viewModelScope.launch {
             eventFlowSticky<Int>(EventBus.TTS_PROGRESS).collect { chapterStart ->
-                _effects.tryEmit(ReadBookEffect.UpTtsAloudSpan(chapterStart))
+                updateReadAloudProgress(chapterStart)
             }
+        }
+    }
+
+    private fun updateReadAloudProgress(chapterStart: Int) {
+        if (BaseReadAloudService.isPlay() && chapterStart > 0) {
+            _readAloudProgress.value = chapterStart
         }
     }
 
@@ -1712,6 +2126,9 @@ class ReadBookViewModel(
                         readAloudIgnoreAudioFocus = prefs.ignoreAudioFocus,
                         readAloudPauseOnPhoneCall = prefs.pauseReadAloudWhilePhoneCalls,
                         readAloudWakeLock = prefs.readAloudWakeLock,
+                        showReadAloudCapsule = prefs.showReadAloudCapsule,
+                        readAloudCapsuleOffsetX = prefs.capsuleOffsetX,
+                        readAloudCapsuleOffsetY = prefs.capsuleOffsetY,
                         readAloudMediaButtonPerNext = prefs.mediaButtonPerNext,
                         readAloudByPage = prefs.readAloudByPage,
                         readAloudSystemMediaCompat = prefs.systemMediaControlCompatibilityChange,
@@ -1719,6 +2136,9 @@ class ReadBookViewModel(
                         readAloudTtsFollowSys = prefs.ttsFollowSys,
                         readAloudTtsSpeechRate = prefs.ttsSpeechRate,
                         readAloudTtsTimer = prefs.ttsTimer,
+                        speechAnalysisMode = prefs.speechAnalysisMode,
+                        useMultiSpeaker = prefs.useMultiSpeaker,
+                        defaultReadAloudInterface = prefs.defaultInterface,
                     )
                 }
             }
@@ -1736,8 +2156,9 @@ class ReadBookViewModel(
     }
 
     private fun setReadAloudTtsTimer(value: Int) {
-        val timer = value.coerceIn(0, 180)
+        val timer = PlaybackTimer.normalize(value)
         ReadAloud.setTimer(context, timer)
+        viewModelScope.launch { readAloudSettingsRepository.setTtsTimer(timer) }
         _uiState.update { it.copy(readAloudTtsTimer = timer) }
     }
 
@@ -1784,12 +2205,69 @@ class ReadBookViewModel(
             textColor = dur.getTextColor(),
             textColorNight = dur.getTextColorNight(),
             textColorEInk = dur.getTextColorEInk(),
+            textFont = config.textFont,
+            titleFont = config.titleFont,
             pageAnim = actualConfig.getPageAnim(),
             pageAnimEInk = actualConfig.getPageAnimEInk(),
             shareLayout = config.shareLayout,
             configCount = config.configList.size,
         )
     }
+
+    private fun buildSheetConfig(): ReadSheetConfigUiState = ReadSheetConfigUiState(
+        letterSpacing = ReadBookConfig.letterSpacing,
+        lineSpacing = ReadBookConfig.lineSpacingExtra,
+        paragraphSpacing = ReadBookConfig.paragraphSpacing,
+        paragraphIndentCount = ReadBookConfig.paragraphIndent.length,
+        textItalic = ReadBookConfig.textItalic,
+        textBold = ReadBookConfig.textBold,
+        chineseConverterType = ReadConfig.chineseConverterType,
+        textColor = ReadBookConfig.durConfig.curTextColor(),
+        textAccentColor = ReadBookConfig.durConfig.curTextAccentColor(),
+        titleMode = ReadBookConfig.titleMode,
+        titleBold = ReadBookConfig.titleBold,
+        titleSegType = ReadBookConfig.titleSegType,
+        titleSegDistance = ReadBookConfig.titleSegDistance,
+        titleSegFlag = ReadBookConfig.titleSegFlag,
+        titleSegScaling = ReadBookConfig.titleSegScaling,
+        titleLineSpacingExtra = ReadBookConfig.titleLineSpacingExtra,
+        titleLineSpacingSub = ReadBookConfig.titleLineSpacingSub,
+        titleSize = ReadBookConfig.titleSize,
+        titleTopSpacing = ReadBookConfig.titleTopSpacing,
+        titleBottomSpacing = ReadBookConfig.titleBottomSpacing,
+        titleColor = ReadBookConfig.titleColor,
+        titleColorNight = ReadBookConfig.titleColorNight,
+        textColorDay = ReadBookConfig.textColor,
+        textColorNight = ReadBookConfig.textColorNight,
+        textShadow = ReadBookConfig.textShadow,
+        textShadowColor = ReadBookConfig.durConfig.curTextShadowColor(),
+        shadowRadius = ReadBookConfig.shadowRadius,
+        shadowDx = ReadBookConfig.shadowDx,
+        shadowDy = ReadBookConfig.shadowDy,
+        underline = ReadBookConfig.underline,
+        dottedLine = ReadBookConfig.dottedLine,
+        underlineExtend = ReadBookConfig.underlineExtend,
+        underlineColor = ReadBookConfig.durConfig.curUnderlineColor(),
+        underlineHeight = ReadBookConfig.underlineHeight,
+        underlinePadding = ReadBookConfig.underlinePadding,
+        dottedBase = ReadBookConfig.durConfig.dottedBase,
+        dottedRatio = ReadBookConfig.durConfig.dottedRatio,
+        paddingTop = ReadBookConfig.paddingTop,
+        paddingBottom = ReadBookConfig.paddingBottom,
+        paddingLeft = ReadBookConfig.paddingLeft,
+        paddingRight = ReadBookConfig.paddingRight,
+        headerPaddingTop = ReadBookConfig.headerPaddingTop,
+        headerPaddingBottom = ReadBookConfig.headerPaddingBottom,
+        headerPaddingLeft = ReadBookConfig.headerPaddingLeft,
+        headerPaddingRight = ReadBookConfig.headerPaddingRight,
+        footerPaddingTop = ReadBookConfig.footerPaddingTop,
+        footerPaddingBottom = ReadBookConfig.footerPaddingBottom,
+        footerPaddingLeft = ReadBookConfig.footerPaddingLeft,
+        footerPaddingRight = ReadBookConfig.footerPaddingRight,
+        configNames = ReadBookConfig.configList.map { it.name }
+            .filter { it.isNotBlank() }
+            .toImmutableList(),
+    )
 
     private fun syncFromReadBook(current: ReadBookUiState): ReadBookUiState {
         val book = ReadBook.book
@@ -1811,6 +2289,9 @@ class ReadBookViewModel(
             seekMax = calculateSeekMax(),
             replaceRuleEnabled = book?.getUseReplaceRule() ?: false,
             effectiveReplaceCount = textChapter?.effectiveReplaceRules?.size ?: 0,
+            effectiveContentProcessCount = textChapter?.effectiveContentProcesses?.size ?: 0,
+            effectiveReplaceRules = textChapter?.effectiveReplaceRules.orEmpty().toImmutableList(),
+            chineseConverterActive = ReadConfig.chineseConverterType > 0,
             translationMode = book?.getTranslationMode() ?: false,
             isLocalTxt = book?.isLocalTxt == true,
             isEpub = book?.isEpub == true,
@@ -1821,6 +2302,7 @@ class ReadBookViewModel(
             sameTitleRemoved = textChapter?.sameTitleRemoved ?: false,
             isReadingProgressSyncConfigured = isReadingProgressSyncConfigured(),
             styleConfig = buildStyleConfig(),
+            sheetConfig = buildSheetConfig(),
             menuConfig = ReadMenuConfig(
                 titleBarIconPosition = ReadBookConfig.titleBarIconPosition,
                 showTitleBarIcons = ReadBookConfig.showTitleBarIcons,
@@ -1831,8 +2313,11 @@ class ReadBookViewModel(
                 readMenuBorderWidth = ReadBookConfig.readMenuBorderWidth,
                 readMenuBorderColor = ReadBookConfig.readMenuBorderColor,
                 readMenuBorderColorNight = ReadBookConfig.readMenuBorderColorNight,
+                readMenuTextColor = ReadBookConfig.readMenuTextColor,
+                readMenuTextColorNight = ReadBookConfig.readMenuTextColorNight,
                 readMenuBlurAlpha = ReadBookConfig.readMenuBlurAlpha,
                 readMenuBlurColor = ReadBookConfig.readMenuBlurColor,
+                readMenuBlurColorNight = ReadBookConfig.readMenuBlurColorNight,
                 readMenuPaletteStyle = ReadBookConfig.readMenuPaletteStyle,
                 readMenuBlurRadius = ReadBookConfig.readMenuBlurRadius,
                 readMenuLensRadius = ReadBookConfig.readMenuLensRadius,
@@ -1844,6 +2329,7 @@ class ReadBookViewModel(
                 readMenuTopBarBlurStyle = ReadBookConfig.readMenuTopBarBlurStyle,
                 readMenuBottomBarBlurStyle = ReadBookConfig.readMenuBottomBarBlurStyle,
                 readMenuIconStyle = ReadBookConfig.readMenuIconStyle,
+                titleBarIconStyle = ReadBookConfig.titleBarIconStyle,
                 readMenuIconShowText = ReadBookConfig.readMenuIconShowText,
                 readSliderMode = ReadBookConfig.readSliderMode,
                 titleBarCustomIcons = ReadBookConfig.titleBarCustomIcons.toImmutableMap(),
@@ -1916,11 +2402,17 @@ class ReadBookViewModel(
             ?: emptyList()
 
         return if (raw.isEmpty()) {
-            ReadBookButtonIds.mapIndexed { index, id ->
-                ReadBookButtonConfigItem(id, index < DEFAULT_ENABLED_BUTTON_COUNT)
+            ReadBookButtonIds.map { id ->
+                ReadBookButtonConfigItem(
+                    id = id,
+                    enabled = id in DEFAULT_ENABLED_BUTTON_IDS ||
+                            (preferenceName == TOOL_BUTTON_PREFS && id in DEFAULT_AI_TOOL_BUTTON_IDS),
+                )
             }
         } else {
-            normalizeButtonConfig(raw)
+            normalizeButtonConfig(raw) { id ->
+                preferenceName == TOOL_BUTTON_PREFS && id in DEFAULT_AI_TOOL_BUTTON_IDS
+            }
         }
     }
 
@@ -1938,6 +2430,7 @@ class ReadBookViewModel(
 
     private fun normalizeButtonConfig(
         items: List<ReadBookButtonConfigItem>,
+        defaultEnabled: (String) -> Boolean = { false },
     ): List<ReadBookButtonConfigItem> {
         val seen = mutableSetOf<String>()
         val normalized = items.mapNotNull { item ->
@@ -1950,7 +2443,12 @@ class ReadBookViewModel(
         }.toMutableList()
         ReadBookButtonIds.forEach { id ->
             if (seen.add(id)) {
-                normalized.add(ReadBookButtonConfigItem(id, true))
+                val item = ReadBookButtonConfigItem(id, defaultEnabled(id))
+                if (id in DEFAULT_AI_TOOL_BUTTON_IDS && item.enabled) {
+                    normalized.add(0, item)
+                } else {
+                    normalized.add(item)
+                }
             }
         }
         return normalized
@@ -2213,11 +2711,11 @@ class ReadBookViewModel(
         changeSourceCoroutine = execute {
             ReadBook.upMsg(context.getString(R.string.loading))
             applyChangeSource(book, toc)
+        }.onSuccess {
+            postEvent(EventBus.SOURCE_CHANGED, book.bookUrl)
         }.onError {
             AppLog.put("换源失败\n$it", it, true)
             ReadBook.upMsg(null)
-        }.onFinally {
-            postEvent(EventBus.SOURCE_CHANGED, book.bookUrl)
         }
     }
 
@@ -2232,11 +2730,11 @@ class ReadBookViewModel(
             }
             val toc = WebBook.getChapterListAwait(source, book).getOrThrow()
             applyChangeSource(book, toc)
+        }.onSuccess {
+            postEvent(EventBus.SOURCE_CHANGED, book.bookUrl)
         }.onError {
             AppLog.put("换源失败\n$it", it, true)
             ReadBook.upMsg(null)
-        }.onFinally {
-            postEvent(EventBus.SOURCE_CHANGED, book.bookUrl)
         }
     }
 
@@ -2244,11 +2742,13 @@ class ReadBookViewModel(
         if (toc.isEmpty()) {
             throw NoStackTraceException("换源目录为空")
         }
-        ReadBook.book?.migrateTo(book, toc)
-        book.removeType(BookType.updateError)
-        ReadBook.book?.delete()
-        appDb.bookDao.insert(book)
-        appDb.bookChapterDao.insert(*toc.toTypedArray())
+        val oldBook = ReadBook.book ?: throw NoStackTraceException("书籍不存在")
+        changeBookSourceUseCase.changeTo(
+            oldBook = oldBook,
+            newBook = book,
+            chapters = toc,
+            options = ChangeSourceConfig.getMigrationOptions(),
+        )
         ReadBook.resetData(book)
         ReadBook.upMsg(null)
         ReadBook.loadContent(resetPageOffset = true)
@@ -2293,7 +2793,7 @@ class ReadBookViewModel(
                 ReadBook.upMsg(null)
             }.catch {
                 AppLog.put("自动换源失败\n${it.localizedMessage}", it)
-                context.toastOnUi("自动换源失败\n${it.localizedMessage}")
+                _effects.tryEmit(ReadBookEffect.ShowToast("自动换源失败\n${it.localizedMessage}"))
             }.collect()
         }
     }
@@ -2355,7 +2855,7 @@ class ReadBookViewModel(
             _effects.tryEmit(ReadBookEffect.Finish)
         }.onError {
             AppLog.put("添加书籍到书架失败", it)
-            context.toastOnUi("添加书籍失败")
+            _effects.tryEmit(ReadBookEffect.ShowToast("添加书籍失败"))
         }
     }
 
@@ -2420,6 +2920,1240 @@ class ReadBookViewModel(
                 BookHelp.clearCache(book)
                 ReadBook.loadContent(false)
             }
+        }
+    }
+
+    private fun openChapterSummary() {
+        val book = ReadBook.book ?: return
+        val chapterIndex = ReadBook.durChapterIndex
+        val chapterTitle = _uiState.value.chapterName
+        closeReadMenu()
+        _uiState.update {
+            it.copy(
+                activeSheet = ReadBookSheet.ChapterSummary,
+                chapterSummary = ChapterSummaryUiState(
+                    bookUrl = book.bookUrl,
+                    chapterIndex = chapterIndex,
+                    chapterTitle = chapterTitle,
+                    isLoading = true,
+                ),
+            )
+        }
+        generateChapterSummary(book.bookUrl, chapterIndex)
+    }
+
+    private fun retryChapterSummary() {
+        val summary = _uiState.value.chapterSummary
+        if (summary.bookUrl.isBlank() || summary.chapterIndex < 0) return
+        _uiState.update {
+            it.copy(
+                chapterSummary = summary.copy(
+                    isLoading = true,
+                    summary = "",
+                    reasoningText = "",
+                    thinkingDuration = 0,
+                    errorMessage = null,
+                )
+            )
+        }
+        generateChapterSummary(summary.bookUrl, summary.chapterIndex)
+    }
+
+    private fun generateChapterSummary(bookUrl: String, chapterIndex: Int) {
+        chapterSummaryJob?.cancel()
+        chapterSummaryJob = viewModelScope.launch {
+            val book = ReadBook.book
+            if (book == null || book.bookUrl != bookUrl) {
+                updateChapterSummaryError(
+                    bookUrl,
+                    chapterIndex,
+                    context.getString(R.string.ai_chapter_changed),
+                )
+                return@launch
+            }
+            val chapter = withContext(IO) {
+                appDb.bookChapterDao.getChapter(bookUrl, chapterIndex)
+            }
+            if (chapter == null) {
+                updateChapterSummaryError(
+                    bookUrl,
+                    chapterIndex,
+                    context.getString(R.string.no_chapter),
+                )
+                return@launch
+            }
+            val content = withContext(IO) {
+                getEffectiveChapterContent(book, chapter)
+            }
+            if (content.isBlank()) {
+                updateChapterSummaryError(
+                    bookUrl,
+                    chapterIndex,
+                    context.getString(R.string.ai_chapter_content_unavailable),
+                )
+                return@launch
+            }
+            try {
+                val fullSummary = StringBuilder()
+                val fullReasoning = StringBuilder()
+                var thinkingStartTime = 0L
+                generateChapterSummaryUseCase.executeStream(
+                    book = book,
+                    bookChapter = chapter,
+                    contentOverride = content,
+                ).collect { event ->
+                    if (!isCurrentChapterSummary(bookUrl, chapterIndex)) return@collect
+                    when (event) {
+                        is GenerateChapterSummaryUseCase.StreamEvent.Content -> {
+                            if (fullSummary.isEmpty() && thinkingStartTime > 0L) {
+                                val duration =
+                                    ((System.currentTimeMillis() - thinkingStartTime) / 1000).toInt()
+                                _uiState.update {
+                                    it.copy(
+                                        chapterSummary = it.chapterSummary.copy(
+                                            thinkingDuration = duration,
+                                        )
+                                    )
+                                }
+                            }
+                            fullSummary.append(event.text)
+                            _uiState.update {
+                                it.copy(
+                                    chapterSummary = it.chapterSummary.copy(
+                                        summary = fullSummary.toString(),
+                                        errorMessage = null,
+                                    )
+                                )
+                            }
+                        }
+
+                        is GenerateChapterSummaryUseCase.StreamEvent.Reasoning -> {
+                            if (thinkingStartTime == 0L) {
+                                thinkingStartTime = System.currentTimeMillis()
+                            }
+                            fullReasoning.append(event.text)
+                            _uiState.update {
+                                it.copy(
+                                    chapterSummary = it.chapterSummary.copy(
+                                        reasoningText = fullReasoning.toString(),
+                                    )
+                                )
+                            }
+                        }
+
+                        is GenerateChapterSummaryUseCase.StreamEvent.Done -> {
+                            _uiState.update {
+                                it.copy(
+                                    chapterSummary = it.chapterSummary.copy(
+                                        isLoading = false,
+                                        summary = event.text,
+                                        reasoningText = event.reasoning.ifBlank {
+                                            fullReasoning.toString()
+                                        },
+                                        errorMessage = null,
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                updateChapterSummaryError(
+                    bookUrl,
+                    chapterIndex,
+                    aiErrorMessage(error),
+                )
+            }
+        }
+    }
+
+    private fun getEffectiveChapterContent(book: Book, chapter: BookChapter): String {
+        val sourceContent = if (book.getTranslationMode()) {
+            TranslationManager.getCachedTranslation(book, chapter)
+                ?: BookHelp.getContent(book, chapter)
+        } else {
+            BookHelp.getContent(book, chapter)
+        } ?: return ""
+        return ContentProcessor.get(book)
+            .getContent(book, chapter, sourceContent, includeTitle = false)
+            .toString()
+    }
+
+    private fun isCurrentChapterSummary(bookUrl: String, chapterIndex: Int): Boolean {
+        val state = _uiState.value
+        return state.activeSheet is ReadBookSheet.ChapterSummary &&
+                state.chapterSummary.bookUrl == bookUrl &&
+                state.chapterSummary.chapterIndex == chapterIndex
+    }
+
+    private fun updateChapterSummaryError(
+        bookUrl: String,
+        chapterIndex: Int,
+        message: String,
+    ) {
+        if (!isCurrentChapterSummary(bookUrl, chapterIndex)) return
+        _uiState.update {
+            it.copy(
+                chapterSummary = it.chapterSummary.copy(
+                    isLoading = false,
+                    errorMessage = message,
+                )
+            )
+        }
+    }
+
+    private fun openAiTextClean(
+        text: String,
+        chapterIndex: Int,
+        chapterPosition: Int,
+    ) {
+        val book = ReadBook.book ?: return
+        if (text.isBlank()) {
+            _effects.tryEmit(
+                ReadBookEffect.ShowToast(context.getString(R.string.ai_text_clean_empty_selection))
+            )
+            return
+        }
+        if (chapterIndex != ReadBook.durChapterIndex) {
+            _effects.tryEmit(
+                ReadBookEffect.ShowToast(context.getString(R.string.ai_chapter_changed))
+            )
+            return
+        }
+        val chapterTitle = _uiState.value.chapterName
+        val visibleContent = ReadBook.curTextChapter?.getContent().orEmpty()
+        val (contextBefore, contextAfter) = buildSelectionContext(
+            content = visibleContent,
+            selectedText = text,
+            approximatePosition = chapterPosition,
+        )
+        val request = PendingAiTextCleanRequest(
+            bookUrl = book.bookUrl,
+            chapterIndex = chapterIndex,
+            chapterTitle = chapterTitle,
+            chapterPosition = chapterPosition,
+            originalText = text,
+            contextBefore = contextBefore,
+            contextAfter = contextAfter,
+        )
+        pendingAiTextCleanRequest = request
+        closeReadMenu()
+        _uiState.update {
+            it.copy(
+                activeSheet = ReadBookSheet.AiTextClean,
+                aiTextClean = AiTextCleanUiState(
+                    bookUrl = request.bookUrl,
+                    chapterIndex = request.chapterIndex,
+                    chapterTitle = request.chapterTitle,
+                    isLoading = true,
+                    originalText = request.originalText,
+                ),
+            )
+        }
+        generateAiTextClean(request)
+    }
+
+    private fun retryAiTextClean() {
+        val request = pendingAiTextCleanRequest ?: return
+        _uiState.update {
+            it.copy(
+                aiTextClean = it.aiTextClean.copy(
+                    isLoading = true,
+                    replacementText = "",
+                    streamingText = "",
+                    reasoningText = "",
+                    thinkingDuration = 0,
+                    errorMessage = null,
+                )
+            )
+        }
+        generateAiTextClean(request)
+    }
+
+    private fun generateAiTextClean(request: PendingAiTextCleanRequest) {
+        aiTextCleanJob?.cancel()
+        aiTextCleanJob = viewModelScope.launch {
+            try {
+                val rawText = StringBuilder()
+                val fullReasoning = StringBuilder()
+                var thinkingStartTime = 0L
+                cleanSelectedTextUseCase.executeStream(
+                    bookUrl = request.bookUrl,
+                    chapterIndex = request.chapterIndex,
+                    chapterTitle = request.chapterTitle,
+                    selectedText = request.originalText,
+                    contextBefore = request.contextBefore,
+                    contextAfter = request.contextAfter,
+                ).collect { event ->
+                    if (!isCurrentAiTextClean(request)) return@collect
+                    when (event) {
+                        is CleanSelectedTextUseCase.StreamEvent.Content -> {
+                            if (rawText.isEmpty() && thinkingStartTime > 0L) {
+                                val duration =
+                                    ((System.currentTimeMillis() - thinkingStartTime) / 1000).toInt()
+                                _uiState.update {
+                                    it.copy(
+                                        aiTextClean = it.aiTextClean.copy(
+                                            thinkingDuration = duration,
+                                        )
+                                    )
+                                }
+                            }
+                            rawText.append(event.text)
+                            _uiState.update {
+                                it.copy(
+                                    aiTextClean = it.aiTextClean.copy(
+                                        streamingText = rawText.toString(),
+                                        errorMessage = null,
+                                    )
+                                )
+                            }
+                        }
+
+                        is CleanSelectedTextUseCase.StreamEvent.Reasoning -> {
+                            if (thinkingStartTime == 0L) {
+                                thinkingStartTime = System.currentTimeMillis()
+                            }
+                            fullReasoning.append(event.text)
+                            _uiState.update {
+                                it.copy(
+                                    aiTextClean = it.aiTextClean.copy(
+                                        reasoningText = fullReasoning.toString(),
+                                    )
+                                )
+                            }
+                        }
+
+                        is CleanSelectedTextUseCase.StreamEvent.Done -> {
+                            _uiState.update {
+                                it.copy(
+                                    aiTextClean = it.aiTextClean.copy(
+                                        isLoading = false,
+                                        replacementText = event.replacement,
+                                        streamingText = "",
+                                        reasoningText = event.reasoning.ifBlank {
+                                            fullReasoning.toString()
+                                        },
+                                        errorMessage = null,
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (isCurrentAiTextClean(request)) {
+                    _uiState.update {
+                        it.copy(
+                            aiTextClean = it.aiTextClean.copy(
+                                isLoading = false,
+                                errorMessage = aiErrorMessage(error),
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun confirmAiTextClean() {
+        val cleanState = _uiState.value.aiTextClean
+        val book = ReadBook.book ?: return
+        if (cleanState.isLoading || cleanState.isApplying || cleanState.errorMessage != null) return
+        if (book.bookUrl != cleanState.bookUrl ||
+            ReadBook.durChapterIndex != cleanState.chapterIndex
+        ) {
+            _uiState.update {
+                it.copy(
+                    aiTextClean = it.aiTextClean.copy(
+                        errorMessage = context.getString(R.string.ai_chapter_changed)
+                    )
+                )
+            }
+            return
+        }
+        val pattern = normalizeAiReplacementText(cleanState.originalText)
+        val replacement = normalizeAiReplacementText(cleanState.replacementText)
+        if (pattern.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    aiTextClean = it.aiTextClean.copy(
+                        errorMessage = context.getString(R.string.ai_text_clean_empty_selection)
+                    )
+                )
+            }
+            return
+        }
+        if (pattern == replacement) {
+            _uiState.update {
+                it.copy(
+                    aiTextClean = it.aiTextClean.copy(
+                        errorMessage = context.getString(R.string.ai_text_clean_no_change)
+                    )
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(aiTextClean = it.aiTextClean.copy(isApplying = true))
+        }
+        viewModelScope.launch {
+            try {
+                saveBookContentProcessUseCase.saveReplacement(
+                    bookUrl = cleanState.bookUrl,
+                    chapterIndex = cleanState.chapterIndex,
+                    chapterPosition = pendingAiTextCleanRequest?.chapterPosition ?: 0,
+                    selectedText = pattern,
+                    contextBefore = pendingAiTextCleanRequest?.contextBefore.orEmpty(),
+                    contextAfter = pendingAiTextCleanRequest?.contextAfter.orEmpty(),
+                    replacementText = replacement,
+                ).getOrThrow()
+                reloadCurrentChapterAfterContentProcessChanged(
+                    bookUrl = cleanState.bookUrl,
+                    chapterIndex = cleanState.chapterIndex,
+                )
+                pendingAiTextCleanRequest = null
+                _uiState.update {
+                    it.copy(
+                        activeSheet = null,
+                        aiTextClean = AiTextCleanUiState(),
+                    )
+                }
+                _effects.tryEmit(
+                    ReadBookEffect.ShowToast(
+                        context.getString(R.string.ai_text_clean_rule_created)
+                    )
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        aiTextClean = it.aiTextClean.copy(
+                            isApplying = false,
+                            errorMessage = error.localizedMessage
+                                ?: context.getString(R.string.error),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun openAiCurrentChapterRewrite() {
+        val book = ReadBook.book ?: return
+        val chapter = ReadBook.curTextChapter?.chapter ?: return
+        viewModelScope.launch {
+            val text = withContext(IO) {
+                getEffectiveChapterContent(book, chapter).trim()
+            }
+            if (text.isBlank()) {
+                _effects.tryEmit(
+                    ReadBookEffect.ShowToast(context.getString(R.string.ai_chapter_content_unavailable))
+                )
+                return@launch
+            }
+            openAiTextRewrite(
+                text = text,
+                chapterIndex = ReadBook.durChapterIndex,
+                chapterPosition = 0,
+            )
+        }
+    }
+
+    private fun openAiTextRewrite(
+        text: String,
+        chapterIndex: Int,
+        chapterPosition: Int,
+    ) {
+        val book = ReadBook.book ?: return
+        val chapterTitle = appDb.bookChapterDao.getChapter(book.bookUrl, chapterIndex)?.title
+            ?: _uiState.value.chapterName
+        val visibleContent = ReadBook.curTextChapter?.getContent().orEmpty()
+        val (contextBefore, contextAfter) = buildSelectionContext(
+            content = visibleContent,
+            selectedText = text,
+            approximatePosition = chapterPosition,
+        )
+        val presets = loadAiRewritePresets()
+        val selectedPresetId = _uiState.value.aiTextRewrite.selectedPresetId
+            .takeIf { id -> presets.any { it.id == id } }
+            ?: presets.firstOrNull()?.id.orEmpty()
+        val request = PendingAiTextRewriteRequest(
+            bookUrl = book.bookUrl,
+            chapterIndex = chapterIndex,
+            chapterTitle = chapterTitle,
+            chapterPosition = chapterPosition,
+            originalText = text,
+            sourceContentHash = buildAiRewriteSourceContentHash(text),
+            contextBefore = contextBefore,
+            contextAfter = contextAfter,
+        )
+        pendingAiTextRewriteRequest = request
+        closeReadMenu()
+        val currentRewriteState = _uiState.value.aiTextRewrite
+        val isSameRewriteTarget = currentRewriteState.bookUrl == request.bookUrl &&
+                currentRewriteState.chapterIndex == request.chapterIndex &&
+                currentRewriteState.originalText == request.originalText
+        if (!isSameRewriteTarget) {
+            aiTextRewriteJob?.cancel()
+        }
+        _uiState.update {
+            it.copy(
+                activeSheet = ReadBookSheet.AiTextRewrite,
+                aiTextRewrite = if (isSameRewriteTarget) {
+                    it.aiTextRewrite.copy(
+                        chapterTitle = request.chapterTitle,
+                        selectedPresetId = selectedPresetId,
+                        presets = presets.toImmutableList(),
+                    )
+                } else {
+                    AiTextRewriteUiState(
+                        bookUrl = request.bookUrl,
+                        chapterIndex = request.chapterIndex,
+                        chapterTitle = request.chapterTitle,
+                        originalText = request.originalText,
+                        selectedPresetId = selectedPresetId,
+                        presets = presets.toImmutableList(),
+                    )
+                },
+            )
+        }
+        loadAiRewriteHistory(request, selectLatest = !isSameRewriteTarget)
+    }
+
+    private fun selectAiRewritePreset(presetId: String) {
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    selectedPresetId = presetId,
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    private fun setAiRewriteTemporaryInstruction(instruction: String) {
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    temporaryInstruction = instruction,
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    private fun selectAiRewriteHistory(artifactId: String) {
+        val historyItem = _uiState.value.aiTextRewrite.history
+            .firstOrNull { it.artifactId == artifactId }
+            ?: return
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    rewrittenText = historyItem.text,
+                    reasoningText = "",
+                    thinkingDuration = 0,
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    private fun loadAiRewriteHistory(
+        request: PendingAiTextRewriteRequest,
+        selectLatest: Boolean,
+    ) {
+        viewModelScope.launch {
+            val history = withContext(IO) {
+                aiArtifactGateway.getArtifactsByContentHash(
+                    bookUrl = request.bookUrl,
+                    chapterIndex = request.chapterIndex,
+                    taskType = AiTaskType.REWRITE_TEXT,
+                    contentHash = request.sourceContentHash,
+                ).mapNotNull { artifact ->
+                    val text = artifact.output?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+                    AiRewriteHistoryUi(
+                        artifactId = artifact.id,
+                        text = text,
+                        timeText = formatAiRewriteHistoryTime(artifact.updatedAt),
+                    )
+                }
+            }
+            val latest = history.firstOrNull()
+            _uiState.update { state ->
+                if (
+                    state.aiTextRewrite.bookUrl != request.bookUrl ||
+                    state.aiTextRewrite.chapterIndex != request.chapterIndex ||
+                    state.aiTextRewrite.originalText != request.originalText
+                ) {
+                    state
+                } else {
+                    state.copy(
+                        aiTextRewrite = state.aiTextRewrite.copy(
+                            history = history.toImmutableList(),
+                            rewrittenText = if (
+                                selectLatest &&
+                                !state.aiTextRewrite.isLoading &&
+                                state.aiTextRewrite.rewrittenText.isBlank() &&
+                                latest != null
+                            ) {
+                                latest.text
+                            } else {
+                                state.aiTextRewrite.rewrittenText
+                            },
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun formatAiRewriteHistoryTime(timestamp: Long): String {
+        val date = Date(timestamp)
+        val dateText = android.text.format.DateFormat.getDateFormat(context).format(date)
+        val timeText = android.text.format.DateFormat.getTimeFormat(context).format(date)
+        return "$dateText $timeText"
+    }
+
+    private fun buildAiRewriteSourceContentHash(text: String): String {
+        return MD5Utils.md5Encode(normalizeAiReplacementText(text))
+    }
+
+    private fun generateSelectedAiTextRewrite() {
+        val state = _uiState.value.aiTextRewrite
+        val preset = state.presets.firstOrNull { it.id == state.selectedPresetId }
+        if (preset == null) {
+            _uiState.update {
+                it.copy(
+                    aiTextRewrite = it.aiTextRewrite.copy(
+                        errorMessage = context.getString(R.string.ai_rewrite_no_preset)
+                    )
+                )
+            }
+            return
+        }
+        val request = pendingAiTextRewriteRequest ?: return
+        generateAiTextRewrite(
+            request = request,
+            preset = preset,
+            temporaryInstruction = state.temporaryInstruction,
+        )
+    }
+
+    private fun retryAiTextRewrite() {
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    isLoading = false,
+                    rewrittenText = "",
+                    reasoningText = "",
+                    thinkingDuration = 0,
+                    referenceCount = 0,
+                    errorMessage = null,
+                )
+            )
+        }
+        generateSelectedAiTextRewrite()
+    }
+
+    private fun generateAiTextRewrite(
+        request: PendingAiTextRewriteRequest,
+        preset: AiRewritePresetUi,
+        temporaryInstruction: String,
+    ) {
+        aiTextRewriteJob?.cancel()
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    isLoading = true,
+                    rewrittenText = "",
+                    reasoningText = "",
+                    thinkingDuration = 0,
+                    referenceCount = 0,
+                    errorMessage = null,
+                )
+            )
+        }
+        aiTextRewriteJob = viewModelScope.launch {
+            try {
+                val referenceContext = buildAiRewriteReferenceContext(request)
+                val fullText = StringBuilder()
+                val fullReasoning = StringBuilder()
+                var thinkingStartTime = 0L
+                aiTextFactoryUseCase.executeStream(
+                    AiTextFactoryUseCase.Request(
+                        bookUrl = request.bookUrl,
+                        chapterIndex = request.chapterIndex,
+                        chapterTitle = request.chapterTitle,
+                        inputText = request.originalText,
+                        taskType = AiTaskType.REWRITE_TEXT,
+                        userInstruction = buildAiRewriteInstruction(
+                            preset.instruction,
+                            temporaryInstruction,
+                        ),
+                        referenceText = referenceContext.text,
+                        skipCache = true,
+                        artifactContentHash = request.sourceContentHash,
+                    )
+                ).collect { event ->
+                    if (!isCurrentAiTextRewrite(request)) return@collect
+                    when (event) {
+                        is AiTextFactoryUseCase.StreamEvent.Content -> {
+                            if (fullText.isEmpty() && thinkingStartTime > 0L) {
+                                val duration =
+                                    ((System.currentTimeMillis() - thinkingStartTime) / 1000).toInt()
+                                _uiState.update {
+                                    it.copy(
+                                        aiTextRewrite = it.aiTextRewrite.copy(
+                                            thinkingDuration = duration,
+                                        )
+                                    )
+                                }
+                            }
+                            fullText.append(event.text)
+                            _uiState.update {
+                                it.copy(
+                                    aiTextRewrite = it.aiTextRewrite.copy(
+                                        rewrittenText = fullText.toString(),
+                                        referenceCount = referenceContext.count,
+                                        errorMessage = null,
+                                    )
+                                )
+                            }
+                        }
+
+                        is AiTextFactoryUseCase.StreamEvent.Reasoning -> {
+                            if (thinkingStartTime == 0L) {
+                                thinkingStartTime = System.currentTimeMillis()
+                            }
+                            fullReasoning.append(event.text)
+                            _uiState.update {
+                                it.copy(
+                                    aiTextRewrite = it.aiTextRewrite.copy(
+                                        reasoningText = fullReasoning.toString(),
+                                        referenceCount = referenceContext.count,
+                                    )
+                                )
+                            }
+                        }
+
+                        is AiTextFactoryUseCase.StreamEvent.Done -> {
+                            _uiState.update {
+                                it.copy(
+                                    aiTextRewrite = it.aiTextRewrite.copy(
+                                        isLoading = false,
+                                        rewrittenText = event.text,
+                                        reasoningText = event.reasoning.ifBlank {
+                                            fullReasoning.toString()
+                                        },
+                                        referenceCount = referenceContext.count,
+                                        errorMessage = null,
+                                    )
+                                )
+                            }
+                            loadAiRewriteHistory(request, selectLatest = false)
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (isCurrentAiTextRewrite(request)) {
+                    _uiState.update {
+                        it.copy(
+                            aiTextRewrite = it.aiTextRewrite.copy(
+                                isLoading = false,
+                                errorMessage = aiErrorMessage(error),
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun confirmAiTextRewrite() {
+        val rewriteState = _uiState.value.aiTextRewrite
+        val book = ReadBook.book ?: return
+        if (rewriteState.isLoading || rewriteState.isApplying || rewriteState.errorMessage != null) return
+        if (book.bookUrl != rewriteState.bookUrl ||
+            ReadBook.durChapterIndex != rewriteState.chapterIndex
+        ) {
+            _uiState.update {
+                it.copy(
+                    aiTextRewrite = it.aiTextRewrite.copy(
+                        errorMessage = context.getString(R.string.ai_chapter_changed)
+                    )
+                )
+            }
+            return
+        }
+        val pattern = normalizeAiReplacementText(rewriteState.originalText)
+        val replacement = normalizeAiReplacementText(rewriteState.rewrittenText)
+        if (pattern.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    aiTextRewrite = it.aiTextRewrite.copy(
+                        errorMessage = context.getString(R.string.ai_text_clean_empty_selection)
+                    )
+                )
+            }
+            return
+        }
+        if (replacement.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    aiTextRewrite = it.aiTextRewrite.copy(
+                        errorMessage = context.getString(R.string.ai_rewrite_empty_result)
+                    )
+                )
+            }
+            return
+        }
+        if (pattern == replacement) {
+            _uiState.update {
+                it.copy(
+                    aiTextRewrite = it.aiTextRewrite.copy(
+                        errorMessage = context.getString(R.string.ai_text_clean_no_change)
+                    )
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(aiTextRewrite = it.aiTextRewrite.copy(isApplying = true))
+        }
+        viewModelScope.launch {
+            try {
+                saveBookContentProcessUseCase.saveReplacement(
+                    bookUrl = rewriteState.bookUrl,
+                    chapterIndex = rewriteState.chapterIndex,
+                    chapterPosition = pendingAiTextRewriteRequest?.chapterPosition ?: 0,
+                    selectedText = pattern,
+                    contextBefore = pendingAiTextRewriteRequest?.contextBefore.orEmpty(),
+                    contextAfter = pendingAiTextRewriteRequest?.contextAfter.orEmpty(),
+                    replacementText = replacement,
+                    kind = BookContentProcess.KIND_AI_REWRITE,
+                ).getOrThrow()
+                reloadCurrentChapterAfterContentProcessChanged(
+                    bookUrl = rewriteState.bookUrl,
+                    chapterIndex = rewriteState.chapterIndex,
+                )
+                pendingAiTextRewriteRequest = null
+                _uiState.update {
+                    it.copy(
+                        activeSheet = null,
+                        aiTextRewrite = AiTextRewriteUiState(),
+                    )
+                }
+                _effects.tryEmit(
+                    ReadBookEffect.ShowToast(
+                        context.getString(R.string.ai_text_rewrite_saved)
+                    )
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        aiTextRewrite = it.aiTextRewrite.copy(
+                            isApplying = false,
+                            errorMessage = error.localizedMessage
+                                ?: context.getString(R.string.error),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun openAiRewritePresetConfig() {
+        val presets = loadAiRewritePresets()
+        _uiState.update {
+            it.copy(
+                activeSheet = ReadBookSheet.AiRewritePresetConfig,
+                aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                    editing = false,
+                    presets = presets.toImmutableList(),
+                    errorMessage = null,
+                ),
+            )
+        }
+    }
+
+    private fun closeAiRewritePresetConfig() {
+        val nextSheet = if (pendingAiTextRewriteRequest != null) {
+            ReadBookSheet.AiTextRewrite
+        } else {
+            null
+        }
+        _uiState.update {
+            it.copy(
+                activeSheet = nextSheet,
+                aiRewritePresetConfig = AiRewritePresetConfigUiState(),
+            )
+        }
+    }
+
+    private fun startAddAiRewritePreset() {
+        _uiState.update {
+            it.copy(
+                aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                    editing = true,
+                    editingPresetId = null,
+                    editingName = "",
+                    editingInstruction = "",
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    private fun startEditAiRewritePreset(preset: AiRewritePresetUi) {
+        _uiState.update {
+            it.copy(
+                aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                    editing = true,
+                    editingPresetId = preset.id,
+                    editingName = preset.name,
+                    editingInstruction = preset.instruction,
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    private fun saveAiRewritePreset() {
+        val config = _uiState.value.aiRewritePresetConfig
+        val name = config.editingName.trim()
+        val instruction = config.editingInstruction.trim()
+        if (name.isBlank() || instruction.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                        errorMessage = context.getString(R.string.ai_rewrite_preset_empty)
+                    )
+                )
+            }
+            return
+        }
+        val editingId = config.editingPresetId
+        val savedPresets = if (editingId == null) {
+            config.presets + AiRewritePresetUi(
+                id = UUID.randomUUID().toString(),
+                name = name,
+                instruction = instruction,
+            )
+        } else {
+            config.presets.map { preset ->
+                if (preset.id == editingId) {
+                    preset.copy(name = name, instruction = instruction)
+                } else {
+                    preset
+                }
+            }
+        }
+        saveAiRewritePresets(savedPresets)
+        syncAiRewritePresets(savedPresets)
+        clearAiRewritePresetDraft()
+    }
+
+    private fun clearAiRewritePresetDraft() {
+        _uiState.update {
+            it.copy(
+                aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                    editing = false,
+                    editingPresetId = null,
+                    editingName = "",
+                    editingInstruction = "",
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    private fun deleteAiRewritePreset() {
+        val deletePreset = _uiState.value.aiRewritePresetConfig.deletePreset ?: return
+        val savedPresets = _uiState.value.aiRewritePresetConfig.presets
+            .filterNot { it.id == deletePreset.id }
+        aiPromptPresetGateway.deletePresetSync(deletePreset.id)
+        syncAiRewritePresets(savedPresets)
+        _uiState.update {
+            it.copy(
+                aiRewritePresetConfig = it.aiRewritePresetConfig.copy(deletePreset = null)
+            )
+        }
+    }
+
+    private fun syncAiRewritePresets(presets: List<AiRewritePresetUi>) {
+        val selected = _uiState.value.aiTextRewrite.selectedPresetId
+            .takeIf { id -> presets.any { it.id == id } }
+            ?: presets.firstOrNull()?.id.orEmpty()
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    presets = presets.toImmutableList(),
+                    selectedPresetId = selected,
+                    rewrittenText = "",
+                    reasoningText = "",
+                    thinkingDuration = 0,
+                    referenceCount = 0,
+                    errorMessage = null,
+                ),
+                aiRewritePresetConfig = it.aiRewritePresetConfig.copy(
+                    presets = presets.toImmutableList(),
+                ),
+            )
+        }
+    }
+
+    private fun loadAiRewritePresets(): List<AiRewritePresetUi> {
+        if (aiPromptPresetGateway.countByTaskTypeSync(AiTaskType.REWRITE_TEXT) == 0) {
+            aiPromptPresetGateway.savePresetsSync(
+                defaultAiRewritePresets().mapIndexed { index, preset ->
+                    preset.toAiPromptPreset(index)
+                }
+            )
+        }
+        return aiPromptPresetGateway.getEnabledByTaskType(AiTaskType.REWRITE_TEXT)
+            .map { it.toAiRewritePresetUi() }
+    }
+
+    private fun saveAiRewritePresets(presets: List<AiRewritePresetUi>) {
+        aiPromptPresetGateway.savePresetsSync(
+            presets.mapIndexed { index, preset ->
+                preset.toAiPromptPreset(index)
+            }
+        )
+    }
+
+    private fun defaultAiRewritePresets(): List<AiRewritePresetUi> {
+        return listOf(
+            AiRewritePresetUi(
+                id = "default_polish",
+                name = context.getString(R.string.ai_rewrite_preset_polish_name),
+                instruction = context.getString(R.string.ai_rewrite_preset_polish_instruction),
+            ),
+            AiRewritePresetUi(
+                id = "default_concise",
+                name = context.getString(R.string.ai_rewrite_preset_concise_name),
+                instruction = context.getString(R.string.ai_rewrite_preset_concise_instruction),
+            ),
+            AiRewritePresetUi(
+                id = "default_dialogue",
+                name = context.getString(R.string.ai_rewrite_preset_dialogue_name),
+                instruction = context.getString(R.string.ai_rewrite_preset_dialogue_instruction),
+            ),
+        )
+    }
+
+    private fun AiRewritePresetUi.toAiPromptPreset(sortNumber: Int): AiPromptPreset {
+        val now = System.currentTimeMillis()
+        return AiPromptPreset(
+            id = id,
+            taskType = AiTaskType.REWRITE_TEXT,
+            name = name,
+            instruction = instruction,
+            builtIn = id.startsWith("default_"),
+            sortNumber = sortNumber,
+            createdAt = now,
+            updatedAt = now,
+        )
+    }
+
+    private fun AiPromptPreset.toAiRewritePresetUi(): AiRewritePresetUi {
+        return AiRewritePresetUi(
+            id = id,
+            name = name,
+            instruction = instruction,
+        )
+    }
+
+    private fun buildAiRewriteInstruction(
+        presetInstruction: String,
+        temporaryInstruction: String,
+    ): String {
+        val temporary = temporaryInstruction.trim()
+        if (temporary.isBlank()) return presetInstruction
+        return buildString {
+            append(presetInstruction)
+            append("\n\nTemporary instruction for this rewrite only:\n")
+            append(temporary)
+        }
+    }
+
+    private suspend fun buildAiRewriteReferenceContext(
+        request: PendingAiTextRewriteRequest,
+    ): AiRewriteReferenceContext = withContext(IO) {
+        val book = ReadBook.book
+            ?.takeIf { it.bookUrl == request.bookUrl }
+            ?: return@withContext AiRewriteReferenceContext()
+        val terms = extractAiRewriteReferenceTerms(request.originalText)
+        if (terms.isEmpty()) return@withContext AiRewriteReferenceContext()
+
+        val chapters = appDb.bookChapterDao.getChapterList(request.bookUrl)
+            .asSequence()
+            .filter { it.index != request.chapterIndex }
+            .sortedWith(
+                compareBy<BookChapter> { kotlin.math.abs(it.index - request.chapterIndex) }
+                    .thenBy { it.index }
+            )
+            .take(AI_REWRITE_REFERENCE_SCAN_CHAPTERS)
+            .toList()
+
+        val excerpts = mutableListOf<String>()
+        for (chapter in chapters) {
+            coroutineContext.ensureActive()
+            val content = BookHelp.getContent(book, chapter) ?: continue
+            val term = terms.firstOrNull { term ->
+                chapter.title.contains(term) || content.contains(term)
+            } ?: continue
+            val excerpt = extractAiRewriteReferenceExcerpt(content, term)
+            if (excerpt.isBlank()) continue
+            excerpts += buildString {
+                append("Chapter ")
+                append(chapter.index + 1)
+                if (chapter.title.isNotBlank()) {
+                    append(": ")
+                    append(chapter.title)
+                }
+                append("\nKeyword: ")
+                append(term)
+                append("\n")
+                append(excerpt)
+            }
+            if (excerpts.size >= AI_REWRITE_REFERENCE_MAX_EXCERPTS) break
+        }
+
+        if (excerpts.isEmpty()) {
+            AiRewriteReferenceContext()
+        } else {
+            AiRewriteReferenceContext(
+                text = excerpts.joinToString("\n\n---\n\n"),
+                count = excerpts.size,
+            )
+        }
+    }
+
+    private fun extractAiRewriteReferenceTerms(text: String): List<String> {
+        val stopWords = setOf(
+            "自己", "他们", "她们", "你们", "我们", "这个", "那个", "什么", "只是", "没有",
+            "不是", "已经", "知道", "起来", "一下", "心里", "眼前", "声音", "时候", "突然",
+            "微微", "终于", "如果", "因为", "所以", "但是", "然后", "似乎", "仿佛", "开始",
+        )
+        val counts = linkedMapOf<String, Int>()
+        fun addTerm(term: String) {
+            val normalized = term.trim()
+            if (normalized.length < 2 || normalized in stopWords) return
+            counts[normalized] = (counts[normalized] ?: 0) + 1
+        }
+
+        Regex("""([\u4e00-\u9fa5]{2,4})(?:说|问|道|喊|叫|笑|答|叹|想|看|望|皱眉|点头|摇头)""")
+            .findAll(text)
+            .forEach { match -> addTerm(match.groupValues[1]) }
+        Regex("""\b[A-Z][A-Za-z]{2,}\b""")
+            .findAll(text)
+            .forEach { match -> addTerm(match.value) }
+
+        return counts.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key }
+            .take(6)
+    }
+
+    private fun extractAiRewriteReferenceExcerpt(content: String, term: String): String {
+        val paragraphs = content.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        val paragraphIndex = paragraphs.indexOfFirst { it.contains(term) }
+        if (paragraphIndex >= 0) {
+            val start = (paragraphIndex - 1).coerceAtLeast(0)
+            val end = (paragraphIndex + 2).coerceAtMost(paragraphs.size)
+            return trimAiRewriteReferenceExcerpt(
+                paragraphs.subList(start, end).joinToString("\n"),
+                term,
+            )
+        }
+        return trimAiRewriteReferenceExcerpt(content, term)
+    }
+
+    private fun trimAiRewriteReferenceExcerpt(text: String, term: String): String {
+        if (text.length <= AI_REWRITE_REFERENCE_EXCERPT_CHARS) return text.trim()
+        val index = text.indexOf(term).takeIf { it >= 0 } ?: 0
+        val start = (index - AI_REWRITE_REFERENCE_EXCERPT_CHARS / 2).coerceAtLeast(0)
+        val end = (start + AI_REWRITE_REFERENCE_EXCERPT_CHARS).coerceAtMost(text.length)
+        return text.substring(start, end).trim()
+    }
+
+    private fun isCurrentAiTextClean(request: PendingAiTextCleanRequest): Boolean {
+        val state = _uiState.value
+        return state.activeSheet is ReadBookSheet.AiTextClean &&
+                state.aiTextClean.bookUrl == request.bookUrl &&
+                state.aiTextClean.chapterIndex == request.chapterIndex &&
+                state.aiTextClean.originalText == request.originalText
+    }
+
+    private fun isCurrentAiTextRewrite(request: PendingAiTextRewriteRequest): Boolean {
+        val state = _uiState.value
+        return state.aiTextRewrite.bookUrl == request.bookUrl &&
+                state.aiTextRewrite.chapterIndex == request.chapterIndex &&
+                state.aiTextRewrite.originalText == request.originalText
+    }
+
+    private fun buildSelectionContext(
+        content: String,
+        selectedText: String,
+        approximatePosition: Int,
+    ): Pair<String, String> {
+        if (content.isBlank()) return "" to ""
+        val start = findClosestOccurrence(content, selectedText, approximatePosition)
+        if (start < 0) return "" to ""
+        val end = start + selectedText.length
+        return content.substring((start - AI_TEXT_CONTEXT_CHARS).coerceAtLeast(0), start) to
+                content.substring(end, (end + AI_TEXT_CONTEXT_CHARS).coerceAtMost(content.length))
+    }
+
+    private fun findClosestOccurrence(
+        content: String,
+        selectedText: String,
+        approximatePosition: Int,
+    ): Int {
+        var match = content.indexOf(selectedText)
+        if (match < 0) return -1
+        var closest = match
+        var closestDistance = kotlin.math.abs(match - approximatePosition)
+        while (match >= 0) {
+            val distance = kotlin.math.abs(match - approximatePosition)
+            if (distance < closestDistance) {
+                closest = match
+                closestDistance = distance
+            }
+            match = content.indexOf(selectedText, match + 1)
+        }
+        return closest
+    }
+
+    private fun normalizeAiReplacementText(text: String): String {
+        val indent = ReadBookConfig.paragraphIndent
+        return text.lines()
+            .joinToString("\n") { line -> line.removePrefix(indent).trim() }
+            .trim()
+    }
+
+    private fun aiErrorMessage(error: Throwable): String {
+        return when {
+            error.message?.contains("No AI model configured", ignoreCase = true) == true ->
+                context.getString(R.string.ai_model_not_configured)
+
+            else -> error.localizedMessage ?: context.getString(R.string.error)
         }
     }
 
@@ -2783,9 +4517,9 @@ class ReadBookViewModel(
             )
             if (!success) throw NoStackTraceException("保存到相册失败")
         }.onError {
-            context.toastOnUi("保存图片失败: ${it.localizedMessage}")
+            _effects.tryEmit(ReadBookEffect.ShowToast("保存图片失败: ${it.localizedMessage}"))
         }.onSuccess {
-            context.toastOnUi("已保存到相册")
+            _effects.tryEmit(ReadBookEffect.ShowToast("已保存到相册"))
         }
     }
 
@@ -2798,10 +4532,119 @@ class ReadBookViewModel(
         }
     }
 
+    private fun loadContentProcesses() {
+        val book = ReadBook.book ?: return
+        val chapterIndex = ReadBook.durChapterIndex
+        _uiState.update {
+            it.copy(
+                contentProcessConfig = it.contentProcessConfig.copy(
+                    isLoading = true,
+                    errorMessage = null,
+                )
+            )
+        }
+        viewModelScope.launch(IO) {
+            runCatching {
+                bookContentProcessGateway.getForChapter(book.bookUrl, chapterIndex)
+                    .mapNotNull { it.toContentProcessItemUi() }
+                    .toImmutableList()
+            }.onSuccess { items ->
+                _uiState.update {
+                    it.copy(
+                        contentProcessConfig = it.contentProcessConfig.copy(
+                            isLoading = false,
+                            items = items,
+                            errorMessage = null,
+                        )
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        contentProcessConfig = it.contentProcessConfig.copy(
+                            isLoading = false,
+                            errorMessage = error.localizedMessage ?: context.getString(R.string.error),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun toggleContentProcess(id: String, enabled: Boolean) {
+        viewModelScope.launch(IO) {
+            runCatching {
+                bookContentProcessGateway.setEnabled(id, enabled)
+            }.onSuccess {
+                reloadCurrentChapterAfterContentProcessChanged()
+                loadContentProcesses()
+            }.onFailure { error ->
+                _effects.tryEmit(
+                    ReadBookEffect.ShowToast(error.localizedMessage ?: context.getString(R.string.error))
+                )
+            }
+        }
+    }
+
+    private fun deletePendingContentProcess() {
+        val item = _uiState.value.contentProcessConfig.deleteItem ?: return
+        viewModelScope.launch(IO) {
+            runCatching {
+                bookContentProcessGateway.delete(item.id)
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        contentProcessConfig = it.contentProcessConfig.copy(deleteItem = null)
+                    )
+                }
+                reloadCurrentChapterAfterContentProcessChanged()
+                loadContentProcesses()
+            }.onFailure { error ->
+                _effects.tryEmit(
+                    ReadBookEffect.ShowToast(error.localizedMessage ?: context.getString(R.string.error))
+                )
+            }
+        }
+    }
+
+    private fun reloadCurrentChapterAfterContentProcessChanged(
+        bookUrl: String? = null,
+        chapterIndex: Int = ReadBook.durChapterIndex,
+    ) {
+        val book = ReadBook.book ?: return
+        if (bookUrl != null && book.bookUrl != bookUrl) return
+        if (ReadBook.durChapterIndex != chapterIndex) return
+        ReadBook.clearTextChapter()
+        for (index in chapterIndex - 1..chapterIndex + 1) {
+            ReadBook.removeLoading(index)
+        }
+        ReadBook.loadContent(resetPageOffset = false)
+    }
+
+    private fun BookContentProcess.toContentProcessItemUi(): ContentProcessItemUi? {
+        val anchor = GSON.fromJsonObject<TextProcessAnchor>(anchorJson).getOrNull()
+            ?: return null
+        val action = GSON.fromJsonObject<TextProcessAction>(actionJson).getOrNull()
+            ?: return null
+        return ContentProcessItemUi(
+            id = id,
+            kind = kind,
+            actionType = action.type,
+            enabled = enabled && status == BookContentProcess.STATUS_ACTIVE,
+            chapterIndex = chapterIndex ?: anchor.chapterIndex,
+            selectedText = anchor.selectedText,
+            replacementText = action.replacement ?: action.text.orEmpty(),
+            createdAt = createdAt,
+        )
+    }
+
     private fun changeReplaceRule(enabled: Boolean) {
         ReadBook.book?.let {
             it.setUseReplaceRule(enabled)
             ReadBook.saveRead()
+            _uiState.update { state ->
+                state.copy(useReplaceRule = enabled, replaceRuleEnabled = enabled)
+            }
             replaceRuleChanged()
         }
     }
@@ -2840,6 +4683,13 @@ class ReadBookViewModel(
                         route,
                     ),
                 ),
+                readAloudTtsTimer = if (
+                    route == ReadBookMenuRoute.ReadAloud && BaseReadAloudService.isRun
+                ) {
+                    BaseReadAloudService.timeMinute.coerceAtLeast(0)
+                } else {
+                    it.readAloudTtsTimer
+                },
             )
         }
     }
@@ -2868,6 +4718,7 @@ class ReadBookViewModel(
             is ConfigUpdate.TitleTopSpacing -> ReadBookConfig.titleTopSpacing = update.value
             is ConfigUpdate.TitleBottomSpacing -> ReadBookConfig.titleBottomSpacing = update.value
             is ConfigUpdate.TitleColor -> ReadBookConfig.titleColor = update.color
+            is ConfigUpdate.TitleColorNight -> ReadBookConfig.titleColorNight = update.color
             is ConfigUpdate.TitleFont -> ReadBookConfig.titleFont = update.path
             is ConfigUpdate.TitleSegType -> ReadBookConfig.titleSegType = update.value
             is ConfigUpdate.TitleSegDistance -> ReadBookConfig.titleSegDistance = update.value
@@ -2882,10 +4733,18 @@ class ReadBookViewModel(
             is ConfigUpdate.TipFooterLeft -> ReadBookConfig.tipFooterLeft = update.value
             is ConfigUpdate.TipFooterMiddle -> ReadBookConfig.tipFooterMiddle = update.value
             is ConfigUpdate.TipFooterRight -> ReadBookConfig.tipFooterRight = update.value
+            is ConfigUpdate.CustomTipHeaderLeft -> ReadBookConfig.customTipHeaderLeft = update.value
+            is ConfigUpdate.CustomTipHeaderMiddle -> ReadBookConfig.customTipHeaderMiddle = update.value
+            is ConfigUpdate.CustomTipHeaderRight -> ReadBookConfig.customTipHeaderRight = update.value
+            is ConfigUpdate.CustomTipFooterLeft -> ReadBookConfig.customTipFooterLeft = update.value
+            is ConfigUpdate.CustomTipFooterMiddle -> ReadBookConfig.customTipFooterMiddle = update.value
+            is ConfigUpdate.CustomTipFooterRight -> ReadBookConfig.customTipFooterRight = update.value
             is ConfigUpdate.HeaderFont -> ReadBookConfig.headerFont = update.path
             is ConfigUpdate.HeaderFontSize -> ReadBookConfig.headerFontSize = update.value
             is ConfigUpdate.TipHeaderColor -> ReadBookConfig.tipHeaderColor = update.color
+            is ConfigUpdate.TipHeaderColorNight -> ReadBookConfig.tipHeaderColorNight = update.color
             is ConfigUpdate.TipFooterColor -> ReadBookConfig.tipFooterColor = update.color
+            is ConfigUpdate.TipFooterColorNight -> ReadBookConfig.tipFooterColorNight = update.color
             is ConfigUpdate.TipDividerColor -> ReadBookConfig.tipDividerColor = update.color
 
             // --- Layout / style ---
@@ -2945,6 +4804,24 @@ class ReadBookViewModel(
                     readSettingsRepository.setReadMenuContainerColorNight(update.color)
                 }
                 postEvent(EventBus.UPDATE_READ_ACTION_BAR, true)
+            }
+            is ConfigUpdate.MenuTextColor -> {
+                ReadBookConfig.readMenuTextColor = update.color
+                viewModelScope.launch {
+                    readSettingsRepository.setReadMenuTextColor(update.color)
+                }
+                _uiState.update {
+                    it.copy(menuConfig = it.menuConfig.copy(readMenuTextColor = update.color))
+                }
+            }
+            is ConfigUpdate.MenuTextColorNight -> {
+                ReadBookConfig.readMenuTextColorNight = update.color
+                viewModelScope.launch {
+                    readSettingsRepository.setReadMenuTextColorNight(update.color)
+                }
+                _uiState.update {
+                    it.copy(menuConfig = it.menuConfig.copy(readMenuTextColorNight = update.color))
+                }
             }
             is ConfigUpdate.MenuColorMode -> {
                 val value = update.value.coerceIn(0, 1)
@@ -3047,6 +4924,14 @@ class ReadBookViewModel(
                     readSettingsRepository.setReadMenuIconStyle(value)
                 }
                 _uiState.update { it.copy(menuConfig = it.menuConfig.copy(readMenuIconStyle = value)) }
+            }
+            is ConfigUpdate.TitleBarIconStyle -> {
+                val value = update.value.coerceIn(0, 2)
+                ReadBookConfig.titleBarIconStyle = value
+                viewModelScope.launch {
+                    readSettingsRepository.setTitleBarIconStyle(value)
+                }
+                _uiState.update { it.copy(menuConfig = it.menuConfig.copy(titleBarIconStyle = value)) }
             }
             is ConfigUpdate.MenuIconItemsPerRow -> {
                 val value = update.value.coerceIn(2, 8)
@@ -3208,6 +5093,13 @@ class ReadBookViewModel(
                 }
                 _uiState.update { it.copy(menuConfig = it.menuConfig.copy(readMenuBlurColor = update.color)) }
             }
+            is ConfigUpdate.MenuBlurColorNight -> {
+                ReadBookConfig.readMenuBlurColorNight = update.color
+                viewModelScope.launch {
+                    readSettingsRepository.setReadMenuBlurColorNight(update.color)
+                }
+                _uiState.update { it.copy(menuConfig = it.menuConfig.copy(readMenuBlurColorNight = update.color)) }
+            }
             is ConfigUpdate.MenuPaletteStyle -> {
                 ReadBookConfig.readMenuPaletteStyle = update.value
                 viewModelScope.launch {
@@ -3303,6 +5195,12 @@ class ReadBookViewModel(
                 ReadBookConfig.readBodyToLh = update.value
                 viewModelScope.launch {
                     readSettingsRepository.setReadBodyToLh(update.value)
+                }
+            }
+            is ConfigUpdate.DefaultSourceChangeAll -> {
+                ReadConfig.defaultSourceChangeAll = update.value
+                viewModelScope.launch {
+                    readSettingsRepository.setDefaultSourceChangeAll(update.value)
                 }
             }
             is ConfigUpdate.TextFullJustify -> {
@@ -3435,6 +5333,16 @@ class ReadBookViewModel(
                     readSettingsRepository.setAutoChangeSource(update.value)
                 }
             }
+            is ConfigUpdate.AutoSuggestDayNight -> {
+                ReadConfig.autoSuggestDayNight = update.value
+                if (update.value) {
+                    hasDismissedDarkReminder = false
+                    hasDismissedLightReminder = false
+                }
+                viewModelScope.launch {
+                    readSettingsRepository.setAutoSuggestDayNight(update.value)
+                }
+            }
             is ConfigUpdate.SelectText -> {
                 ReadConfig.selectText = update.value
                 viewModelScope.launch {
@@ -3479,12 +5387,6 @@ class ReadBookViewModel(
                     readSettingsRepository.setShowSelectMenuIcon(update.value)
                 }
             }
-            is ConfigUpdate.TextSelectMenuFilter -> {
-                ReadConfig.textSelectMenuFilter = update.value
-                viewModelScope.launch {
-                    readSettingsRepository.setTextSelectMenuFilter(update.value)
-                }
-            }
             is ConfigUpdate.ShowReadTitleAddition -> {
                 ReadConfig.showReadTitleAddition = update.value
                 viewModelScope.launch {
@@ -3519,6 +5421,237 @@ class ReadBookViewModel(
         }
     }
 
+    private fun moveHighlightRule(from: Int, to: Int) {
+        val rules = _uiState.value.highlightRuleConfig.rules
+        if (from !in rules.indices || to !in rules.indices) return
+        val reordered = rules.toMutableList().apply {
+            add(to, removeAt(from))
+        }
+        _uiState.update {
+            it.copy(
+                highlightRuleConfig = it.highlightRuleConfig.copy(
+                    rules = reordered.toImmutableList()
+                )
+            )
+        }
+    }
+
+    private fun importHighlightRuleSource(text: String) {
+        _uiState.update {
+            it.copy(
+                highlightRuleConfig = it.highlightRuleConfig.copy(
+                    importState = BaseImportUiState.Loading
+                )
+            )
+        }
+        execute {
+            val importedRules = importHighlightRuleSourceAwait(text.trim())
+                .map(highlightRuleRepository::sanitizeRule)
+            if (importedRules.isEmpty()) {
+                throw NoStackTraceException(context.getString(R.string.wrong_format))
+            }
+            val oldRules = highlightRuleRepository.load(ReadBookConfig.durConfig.name)
+                .associateBy { it.id }
+            BaseImportUiState.Success(
+                source = text,
+                items = importedRules.map { rule ->
+                    val oldRule = oldRules[rule.id]
+                    val status = when {
+                        oldRule == null -> ImportStatus.New
+                        oldRule != rule -> ImportStatus.Update
+                        else -> ImportStatus.Existing
+                    }
+                    ImportItemWrapper(
+                        data = rule,
+                        oldData = oldRule,
+                        status = status,
+                        isSelected = status != ImportStatus.Existing,
+                    )
+                }
+            )
+        }.onSuccess { importState ->
+            _uiState.update {
+                it.copy(
+                    highlightRuleConfig = it.highlightRuleConfig.copy(
+                        importState = importState
+                    )
+                )
+            }
+        }.onError {
+            AppLog.put("导入高亮规则失败\n${it.localizedMessage}", it, true)
+            _uiState.update { state ->
+                state.copy(
+                    highlightRuleConfig = state.highlightRuleConfig.copy(
+                        importState = BaseImportUiState.Error(
+                            it.localizedMessage ?: context.getString(R.string.wrong_format)
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    private suspend fun importHighlightRuleSourceAwait(text: String): List<HighlightRule> {
+        return when {
+            text.isJsonArray() -> GSON.fromJsonArray<HighlightRule>(text).getOrThrow()
+            text.isJsonObject() -> listOf(
+                GSON.fromJsonObject<HighlightRule>(text).getOrThrow()
+            )
+            text.isAbsUrl() -> {
+                val body = okHttpClient.newCallResponseBody {
+                    if (text.endsWith("#requestWithoutUA")) {
+                        url(text.substringBeforeLast("#requestWithoutUA"))
+                        header(AppConst.UA_NAME, "null")
+                    } else {
+                        url(text)
+                    }
+                }.decompressed().text()
+                importHighlightRuleSourceAwait(body)
+            }
+            else -> throw NoStackTraceException(context.getString(R.string.wrong_format))
+        }
+    }
+
+    private fun importHighlightRuleFile(uri: Uri) {
+        execute<String?> {
+            context.contentResolver.openInputStream(uri)?.use {
+                it.reader().readText()
+            }
+        }.onSuccess { text ->
+            if (text.isNullOrBlank()) {
+                _uiState.update { state ->
+                    state.copy(
+                        highlightRuleConfig = state.highlightRuleConfig.copy(
+                            importState = BaseImportUiState.Error(
+                                context.getString(R.string.wrong_format)
+                            )
+                        )
+                    )
+                }
+            } else {
+                importHighlightRuleSource(text)
+            }
+        }.onError {
+            _uiState.update { state ->
+                state.copy(
+                    highlightRuleConfig = state.highlightRuleConfig.copy(
+                        importState = BaseImportUiState.Error(
+                            it.localizedMessage ?: context.getString(R.string.wrong_format)
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    private fun cancelHighlightRuleImport() {
+        _uiState.update {
+            it.copy(
+                highlightRuleConfig = it.highlightRuleConfig.copy(
+                    importState = BaseImportUiState.Idle
+                )
+            )
+        }
+    }
+
+    private fun toggleHighlightRuleImportSelection(index: Int) {
+        val importState = _uiState.value.highlightRuleConfig.importState
+            as? BaseImportUiState.Success<HighlightRule> ?: return
+        if (index !in importState.items.indices) return
+        val items = importState.items.toMutableList()
+        val item = items[index]
+        items[index] = item.copy(isSelected = !item.isSelected)
+        _uiState.update {
+            it.copy(
+                highlightRuleConfig = it.highlightRuleConfig.copy(
+                    importState = importState.copy(items = items)
+                )
+            )
+        }
+    }
+
+    private fun toggleHighlightRuleImportAll(isSelected: Boolean) {
+        val importState = _uiState.value.highlightRuleConfig.importState
+            as? BaseImportUiState.Success<HighlightRule> ?: return
+        _uiState.update {
+            it.copy(
+                highlightRuleConfig = it.highlightRuleConfig.copy(
+                    importState = importState.copy(
+                        items = importState.items.map { item ->
+                            item.copy(isSelected = isSelected)
+                        }
+                    )
+                )
+            )
+        }
+    }
+
+    private fun updateHighlightRuleImportItem(index: Int, rule: HighlightRule) {
+        val importState = _uiState.value.highlightRuleConfig.importState
+            as? BaseImportUiState.Success<HighlightRule> ?: return
+        if (index !in importState.items.indices) return
+        val items = importState.items.toMutableList()
+        items[index] = items[index].copy(data = rule)
+        _uiState.update {
+            it.copy(
+                highlightRuleConfig = it.highlightRuleConfig.copy(
+                    importState = importState.copy(
+                        items = items,
+                        version = importState.version + 1,
+                    )
+                )
+            )
+        }
+    }
+
+    private fun saveImportedHighlightRules() {
+        val state = _uiState.value.highlightRuleConfig
+        val importState = state.importState
+            as? BaseImportUiState.Success<HighlightRule> ?: return
+        val importedRules = importState.items
+            .filter { it.isSelected }
+            .map { highlightRuleRepository.sanitizeRule(it.data) }
+        if (importedRules.isEmpty()) return
+        val importedById = importedRules.associateBy { it.id }
+        val mergedRules = state.rules.map { importedById[it.id] ?: it } +
+                importedRules.filter { imported -> state.rules.none { it.id == imported.id } }
+        saveHighlightRules(mergedRules)
+        cancelHighlightRuleImport()
+    }
+
+    private fun exportHighlightRules(uri: Uri) {
+        val rules = _uiState.value.highlightRuleConfig.rules
+        execute {
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                output.bufferedWriter().use { writer ->
+                    writer.write(GSON.toJson(rules))
+                }
+            } ?: throw NoStackTraceException(context.getString(R.string.error))
+        }.onSuccess {
+            _effects.tryEmit(ReadBookEffect.ShowToast(context.getString(R.string.export_success)))
+        }.onError {
+            _effects.tryEmit(
+                ReadBookEffect.ShowToast(
+                    it.localizedMessage ?: context.getString(R.string.error)
+                )
+            )
+        }
+    }
+
+    private fun exportHighlightRulesAsUrl() {
+        val rules = _uiState.value.highlightRuleConfig.rules
+        execute {
+            uploadRepository.upload(
+                fileName = HighlightRuleRepository.backupFileName,
+                file = GSON.toJson(rules),
+                contentType = "application/json",
+            )
+        }.onSuccess { url ->
+            context.sendToClip(url)
+            _effects.tryEmit(ReadBookEffect.ShowToast(context.getString(R.string.copy_url)))
+        }
+    }
+
     private fun loadHighlightRules() {
         val configName = ReadBookConfig.durConfig.name
         _uiState.update {
@@ -3528,6 +5661,7 @@ class ReadBookViewModel(
                     editingRule = null,
                     showNewRule = false,
                     deleteRule = null,
+                    importState = BaseImportUiState.Idle,
                 ),
             )
         }
@@ -3612,9 +5746,23 @@ class ReadBookViewModel(
     }
 
     private fun toggleDayNight() {
+        lastSwitchDayNightReminderTime = System.currentTimeMillis()
+        hasDismissedDarkReminder = false
+        hasDismissedLightReminder = false
         val nextMode = if (ReadConfig.isNightTheme) "1" else "2"
         ThemeConfig.themeMode = nextMode
-        _uiState.update { it.copy(styleConfig = buildStyleConfig()) }
+        _uiState.update {
+            val newActiveReminder = if (it.activeReminder?.type is ReminderType.DayNightReminder) {
+                null
+            } else {
+                it.activeReminder
+            }
+            it.copy(
+                activeReminder = newActiveReminder,
+                styleConfig = buildStyleConfig()
+            )
+        }
+        reminderQueue.removeAll { it.type is ReminderType.DayNightReminder }
         _effects.tryEmit(ReadBookEffect.UpdateReadViewConfig(
             setOf(
                 ConfigUpdateAction.UpdateBackground,
@@ -3623,7 +5771,6 @@ class ReadBookViewModel(
                 ConfigUpdateAction.UpdateSystemUi
             )
         ))
-        postEvent(EventBus.UPDATE_READ_ACTION_BAR, true)
     }
 
     private fun applyReadStyleBackgroundImage(uri: Uri) {
@@ -3827,8 +5974,10 @@ class ReadBookViewModel(
 
     private fun toggleTranslation() {
         val book = ReadBook.book ?: return
-        book.setTranslationMode(!book.getTranslationMode())
+        val enabled = !book.getTranslationMode()
+        book.setTranslationMode(enabled)
         book.save()
+        _uiState.update { it.copy(translationMode = enabled) }
         ReadBook.loadContent(false)
     }
 
@@ -3883,6 +6032,24 @@ class ReadBookViewModel(
         }
     }
 
+    private fun runSourceCustomButton(longClick: Boolean) {
+        val source = ReadBook.bookSource?.takeIf { it.customButton } ?: return
+        val book = ReadBook.book ?: return
+        val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, ReadBook.durChapterIndex)
+        _effects.tryEmit(
+            ReadBookEffect.RunSourceCustomButton(
+                event = if (longClick) {
+                    SourceCallBack.LONG_CLICK_CUSTOM_BUTTON
+                } else {
+                    SourceCallBack.CLICK_CUSTOM_BUTTON
+                },
+                source = source,
+                book = book,
+                chapter = chapter,
+            )
+        )
+    }
+
     private fun toggleReadUrlInBrowser() {
         viewModelScope.launch {
             val current = localPreferencesRepository
@@ -3892,8 +6059,12 @@ class ReadBookViewModel(
             localPreferencesRepository.updatePreference(
                 LocalPreferencesKeys.READ_URL_IN_BROWSER, newValue
             )
-            context.toastOnUi(
-                if (newValue) R.string.open_by_browser else R.string.open_by_webview
+            _effects.tryEmit(
+                ReadBookEffect.ShowToast(
+                    context.getString(
+                        if (newValue) R.string.open_by_browser else R.string.open_by_webview
+                    )
+                )
             )
         }
     }
@@ -3903,7 +6074,7 @@ class ReadBookViewModel(
         if (book.isLocal) return
         val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, ReadBook.durChapterIndex)
         if (chapter == null) {
-            context.toastOnUi(R.string.no_chapter)
+            _effects.tryEmit(ReadBookEffect.ShowToast(context.getString(R.string.no_chapter)))
             return
         }
         _uiState.update { it.copy(activeDialog = ReadBookDialog.ConfirmChapterPay(chapter.title)) }
@@ -4009,7 +6180,106 @@ class ReadBookViewModel(
             success?.invoke()
         }.onError {
             AppLog.put("添加书籍到书架失败", it)
-            context.toastOnUi("添加书籍失败")
+            _effects.tryEmit(ReadBookEffect.ShowToast("添加书籍失败"))
+        }
+    }
+
+    private var lastSwitchDayNightReminderTime: Long = 0L
+    private val reminderQueue = ArrayDeque<ReminderUiState>()
+    private var hasDismissedDarkReminder = false
+    private var hasDismissedLightReminder = false
+
+    fun isDayNightSwitchCoolingDown(): Boolean {
+        return System.currentTimeMillis() - lastSwitchDayNightReminderTime < REMINDER_COOLDOWN_MS
+    }
+
+    private fun showReminder(reminder: ReminderUiState) {
+        if (_uiState.value.activeReminder == null && reminderQueue.isEmpty()) {
+            _uiState.update { it.copy(activeReminder = reminder) }
+        } else {
+            reminderQueue.addLast(reminder)
+        }
+    }
+
+    private fun isReadBgLight(colorInt: Int): Boolean {
+        // io.legado.app.utils.ColorUtils.isColorLight 判断条件是 >= 0.5
+        // 实际很多肉眼觉得亮的颜色会被判断为false，例如 0xFFC5B098
+        return AndroidColorUtils.calculateLuminance(colorInt) >= LIGHT_LUMINANCE_THRESHOLD
+    }
+
+    private fun checkSwitchDayNight(lux: Float) {
+        if (!ReadConfig.autoSuggestDayNight || isDayNightSwitchCoolingDown()) return
+        val isNight = ReadConfig.isNightTheme
+        val styleConfig = _uiState.value.styleConfig
+        if (!isNight && lux <= DARK_LUX_THRESHOLD) {
+            if (hasDismissedDarkReminder) return
+            val bgType = styleConfig.bgType
+            val isLightBg = if (bgType == 0) {
+                val colorInt = runCatching { styleConfig.bgStr.toColorInt() }.getOrDefault(0xFFEEEEEE.toInt())
+                isReadBgLight(colorInt)
+            } else {
+                val meanColor = ReadBookConfig.bgMeanColor
+                if (meanColor != 0) isReadBgLight(meanColor) else true
+            }
+            if (isLightBg) {
+                lastSwitchDayNightReminderTime = System.currentTimeMillis()
+                showReminder(
+                    ReminderUiState(
+                        message = context.getString(R.string.switch_to_dark_mode_tip),
+                        actionText = context.getString(R.string.switch_action),
+                        actionIntent = ReadBookIntent.ToggleDayNight,
+                        type = ReminderType.DayNightReminder(targetIsNight = true),
+                    )
+                )
+            }
+        } else if (isNight && lux >= BRIGHT_LUX_THRESHOLD) {
+            if (hasDismissedLightReminder) return
+            val bgTypeNight = styleConfig.bgTypeNight
+            val isDarkBg = if (bgTypeNight == 0) {
+                val colorInt = runCatching { styleConfig.bgStrNight.toColorInt() }.getOrDefault(0xFF000000.toInt())
+                !isReadBgLight(colorInt)
+            } else {
+                val meanColor = ReadBookConfig.bgMeanColor
+                if (meanColor != 0) !isReadBgLight(meanColor) else true
+            }
+            if (isDarkBg) {
+                lastSwitchDayNightReminderTime = System.currentTimeMillis()
+                showReminder(
+                    ReminderUiState(
+                        message = context.getString(R.string.switch_to_light_mode_tip),
+                        actionText = context.getString(R.string.switch_action),
+                        actionIntent = ReadBookIntent.ToggleDayNight,
+                        type = ReminderType.DayNightReminder(targetIsNight = false),
+                    )
+                )
+            }
+        }
+    }
+
+    private fun dismissReminder() {
+        val currentReminder = _uiState.value.activeReminder
+        if (currentReminder != null) {
+            when (val type = currentReminder.type) {
+                is ReminderType.DayNightReminder -> {
+                    if (type.targetIsNight) {
+                        hasDismissedDarkReminder = true
+                    } else {
+                        hasDismissedLightReminder = true
+                    }
+                }
+                else -> {}
+            }
+        }
+        _uiState.update { it.copy(activeReminder = null) }
+        if (reminderQueue.isNotEmpty()) {
+            viewModelScope.launch {
+                //延迟一下，让上一个提醒的动画结束
+                delay(500.milliseconds)
+                if (_uiState.value.activeReminder == null && reminderQueue.isNotEmpty()) {
+                    val next = reminderQueue.removeFirst()
+                    _uiState.update { it.copy(activeReminder = next) }
+                }
+            }
         }
     }
 }
@@ -4018,12 +6288,54 @@ private const val TITLE_BAR_ICON_PREFS = "title_bar_icons"
 private const val TITLE_BAR_ICON_KEY = "icons"
 private const val TOOL_BUTTON_PREFS = "tool_button_config"
 private const val TOOL_BUTTON_KEY = "tool_buttons"
-private const val DEFAULT_ENABLED_BUTTON_COUNT = 5
+private const val AI_TEXT_CONTEXT_CHARS = 1000
+private const val AI_REWRITE_REFERENCE_SCAN_CHAPTERS = 80
+private const val AI_REWRITE_REFERENCE_MAX_EXCERPTS = 6
+private const val AI_REWRITE_REFERENCE_EXCERPT_CHARS = 600
+private val DEFAULT_ENABLED_BUTTON_IDS = setOf(
+    "search",
+    "auto_page",
+    "catalog",
+    "read_aloud",
+    "setting",
+)
+private val DEFAULT_AI_TOOL_BUTTON_IDS = setOf("ai_summary", "ai_rewrite")
+
+private const val DARK_LUX_THRESHOLD = 8f
+private const val BRIGHT_LUX_THRESHOLD = 100f
+private const val LIGHT_LUMINANCE_THRESHOLD = 0.35
+private const val REMINDER_COOLDOWN_MS = 10 * 60 * 1000L
 
 private data class SearchTextPoint(
     val pageIndex: Int,
     val lineIndex: Int,
     val charIndex: Int,
+)
+
+private data class PendingAiTextCleanRequest(
+    val bookUrl: String,
+    val chapterIndex: Int,
+    val chapterTitle: String,
+    val chapterPosition: Int,
+    val originalText: String,
+    val contextBefore: String,
+    val contextAfter: String,
+)
+
+private data class PendingAiTextRewriteRequest(
+    val bookUrl: String,
+    val chapterIndex: Int,
+    val chapterTitle: String,
+    val chapterPosition: Int,
+    val originalText: String,
+    val sourceContentHash: String,
+    val contextBefore: String,
+    val contextAfter: String,
+)
+
+private data class AiRewriteReferenceContext(
+    val text: String = "",
+    val count: Int = 0,
 )
 
 private fun Int.coerceSearchResultIndex(resultSize: Int): Int {

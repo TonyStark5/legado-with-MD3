@@ -12,14 +12,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
-import io.legado.app.data.repository.ReadSettingsRepository
-import io.legado.app.help.config.ReadBookConfig
+import io.legado.app.data.repository.ReadPreferences
+import io.legado.app.ui.book.read.sheet.AiRewritePresetConfigSheet
+import io.legado.app.ui.book.read.sheet.AiTextCleanSheet
+import io.legado.app.ui.book.read.sheet.AiTextRewriteSheet
 import io.legado.app.ui.book.read.sheet.BgTextConfigSheet
 import io.legado.app.ui.book.read.sheet.ChangeChapterSourceSheet
+import io.legado.app.ui.book.read.sheet.ChapterSummarySheet
 import io.legado.app.ui.book.read.sheet.CharsetConfigSheet
 import io.legado.app.ui.book.read.sheet.ClickActionConfigSheet
 import io.legado.app.ui.book.read.sheet.ContentEditSheet
-import io.legado.app.ui.dict.DictSheet
+import io.legado.app.ui.book.read.sheet.ContentProcessesSheet
 import io.legado.app.ui.book.read.sheet.DownloadSheet
 import io.legado.app.ui.book.read.sheet.EffectiveReplacesSheet
 import io.legado.app.ui.book.read.sheet.HighlightRuleConfigSheet
@@ -36,14 +39,27 @@ import io.legado.app.ui.book.read.sheet.SpeakEngineConfigSheet
 import io.legado.app.ui.book.read.sheet.TitleBarIconSheet
 import io.legado.app.ui.book.read.sheet.ToolButtonConfigSheet
 import io.legado.app.ui.book.read.sheet.UnderlineConfigSheet
+import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerEffect
+import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerSheet
+import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerViewModel
+import io.legado.app.ui.dict.DictSheet
 import io.legado.app.ui.widget.components.FontFolderState
 import io.legado.app.ui.widget.components.FontSelectSheet
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
+import io.legado.app.ui.widget.components.bookmark.BookmarkEditSheet
 import io.legado.app.ui.widget.components.changeSource.ChangeSourceSheet
 import io.legado.app.ui.widget.components.log.AppLogSheet
-import io.legado.app.ui.config.readConfig.TextSelectMenuFilterSheet
 import io.legado.app.utils.toastOnUi
+import coil.ImageLoader
+import io.legado.app.ui.config.coverConfig.CoverConfig
+import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.ProvideThemeOverride
+import io.legado.app.ui.theme.rememberImageSeedColor
+import io.legado.app.ui.theme.rememberThemeOverride
+import io.legado.app.ui.widget.components.image.cover.usesDefaultBookCover
+import io.legado.app.model.BookCover as BookCoverModel
 import kotlinx.coroutines.flow.collectLatest
+import org.koin.compose.koinInject
 
 /**
  * Stateless ReadBook screen — renders BackHandler + dialogs + sheets.
@@ -52,11 +68,14 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun ReadBookScreen(
     state: ReadBookUiState,
+    preferences: ReadPreferences,
     onIntent: (ReadBookIntent) -> Unit,
     onBack: () -> Unit,
+    onOpenTextSelectMenuConfig: () -> Unit,
 ) {
     BackHandler {
         when {
+            state.activeSheet != null -> onIntent(ReadBookIntent.DismissSheet)
             state.isShowingSearchResult -> onIntent(ReadBookIntent.ExitSearch)
             state.menuVisible -> onIntent(ReadBookIntent.ReadMenuBack)
             state.isAutoPage -> onIntent(ReadBookIntent.StopAutoPage)
@@ -151,11 +170,15 @@ fun ReadBookScreen(
 
     ShadowSetSheet(
         show = state.activeSheet is ReadBookSheet.ShadowSet,
+        config = state.sheetConfig,
         onDismissRequest = dismissSheet,
         onIntent = onIntent,
     )
     EffectiveReplacesSheet(
         show = state.activeSheet is ReadBookSheet.EffectiveReplaces,
+        effectiveRules = state.effectiveReplaceRules,
+        chineseConvertActive = state.chineseConverterActive,
+        reSegmentActive = state.reSegment,
         onDismissRequest = dismissSheet,
         onOpenReplaceEditor = { id, pattern ->
             onIntent(ReadBookIntent.OpenReplaceEditor(id, pattern))
@@ -165,30 +188,34 @@ fun ReadBookScreen(
             onIntent(ReadBookIntent.DismissSheet)
             onIntent(ReadBookIntent.OpenReadMenuRoute(ReadBookMenuRoute.TextTitle))
         },
+        onOpenContentProcesses = {
+            onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.ContentProcesses))
+        },
+        onDisableRule = { onIntent(ReadBookIntent.DisableEffectiveReplace(it)) },
+        onDisableChineseConverter = { onIntent(ReadBookIntent.DisableChineseConverter) },
+        onDisableReSegment = { onIntent(ReadBookIntent.DisableReSegment) },
+    )
+    ContentProcessesSheet(
+        show = state.activeSheet is ReadBookSheet.ContentProcesses,
+        state = state.contentProcessConfig,
+        onIntent = onIntent,
+        onDismissRequest = dismissSheet,
     )
     UnderlineConfigSheet(
         show = state.activeSheet is ReadBookSheet.UnderlineConfig,
+        config = state.sheetConfig,
         onDismissRequest = dismissSheet,
         onIntent = onIntent,
     )
-    val fontSelectReadSettings: ReadSettingsRepository = org.koin.compose.koinInject()
-    val fontSelectPreferences by fontSelectReadSettings.preferences.collectAsStateWithLifecycle(
-        initialValue = null
-    )
-    val fontSelectFolderState = remember(fontSelectPreferences) {
-        val pref = fontSelectPreferences
-        if (pref == null) {
-            FontFolderState.Loading
-        } else {
-            FontFolderState.Loaded(pref.fontFolder.takeIf { it.isNotEmpty() }?.toUri())
-        }
+    val fontSelectFolderState = remember(preferences.fontFolder) {
+        FontFolderState.Loaded(preferences.fontFolder.takeIf { it.isNotEmpty() }?.toUri())
     }
     val fontSelectSystemTypefaces = stringArrayResource(R.array.system_typefaces)
     FontSelectSheet(
         show = state.activeSheet is ReadBookSheet.FontSelect,
         title = stringResource(R.string.select_font),
         folderState = fontSelectFolderState,
-        selectedFontPath = ReadBookConfig.textFont,
+        selectedFontPath = state.styleConfig.textFont,
         onDismissRequest = dismissSheet,
         onSelectFont = { onIntent(ReadBookIntent.SelectFont(it.uri.toString())) },
         onSelectSystemTypeface = { onIntent(ReadBookIntent.SelectSystemTypeface(it)) },
@@ -199,7 +226,7 @@ fun ReadBookScreen(
         show = state.activeSheet is ReadBookSheet.TitleFontSelect,
         title = stringResource(R.string.read_config_title_settings),
         folderState = fontSelectFolderState,
-        selectedFontPath = ReadBookConfig.titleFont,
+        selectedFontPath = state.styleConfig.titleFont,
         onDismissRequest = dismissSheet,
         onSelectFont = { onIntent(ReadBookIntent.SelectTitleFont(it.uri.toString())) },
         onSelectSystemTypeface = { onIntent(ReadBookIntent.SelectTitleSystemTypeface(it)) },
@@ -223,6 +250,7 @@ fun ReadBookScreen(
     HighlightRuleConfigSheet(
         show = state.activeSheet is ReadBookSheet.HighlightRuleConfig,
         state = state.highlightRuleConfig,
+        allConfigNames = state.sheetConfig.configNames,
         onDismissRequest = dismissSheet,
         onIntent = onIntent,
     )
@@ -231,6 +259,30 @@ fun ReadBookScreen(
         state = state,
         onIntent = onIntent,
         onDismissRequest = dismissSheet,
+    )
+    ChapterSummarySheet(
+        show = state.activeSheet is ReadBookSheet.ChapterSummary,
+        state = state.chapterSummary,
+        onIntent = onIntent,
+        onDismissRequest = dismissSheet,
+    )
+    AiTextCleanSheet(
+        show = state.activeSheet is ReadBookSheet.AiTextClean,
+        state = state.aiTextClean,
+        onIntent = onIntent,
+        onDismissRequest = dismissSheet,
+    )
+    AiTextRewriteSheet(
+        show = state.activeSheet is ReadBookSheet.AiTextRewrite,
+        state = state.aiTextRewrite,
+        onIntent = onIntent,
+        onDismissRequest = dismissSheet,
+    )
+    AiRewritePresetConfigSheet(
+        show = state.activeSheet is ReadBookSheet.AiRewritePresetConfig,
+        state = state.aiRewritePresetConfig,
+        onIntent = onIntent,
+        onDismissRequest = { onIntent(ReadBookIntent.CloseAiRewritePresetConfig) },
     )
     MoreConfigSheet(
         show = state.activeSheet is ReadBookSheet.MoreConfig,
@@ -244,10 +296,7 @@ fun ReadBookScreen(
             onIntent(ReadBookIntent.DismissSheet)
             onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.PageKeyConfig))
         },
-        onOpenTextSelectMenuFilterConfig = {
-            onIntent(ReadBookIntent.DismissSheet)
-            onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.TextSelectMenuFilterConfig))
-        },
+        onOpenTextSelectMenuConfig = onOpenTextSelectMenuConfig,
     )
     ReadAloudConfigSheet(
         show = state.activeSheet is ReadBookSheet.ReadAloudConfig,
@@ -298,6 +347,21 @@ fun ReadBookScreen(
             onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.ReadAloudConfig))
         },
     )
+    ReadAloudNumberConfigSheet(
+        show = state.activeSheet is ReadBookSheet.ParagraphIntervalConfig,
+        title = stringResource(R.string.tts_paragraph_interval),
+        description = stringResource(
+            R.string.tts_paragraph_interval_summary,
+            state.readAloudParagraphInterval
+        ),
+        value = state.readAloudParagraphInterval,
+        defaultValue = 0,
+        valueRange = 0f..5000f,
+        onValueChange = { onIntent(ReadBookIntent.ApplyParagraphInterval(it)) },
+        onDismissRequest = {
+            onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.ReadAloudConfig))
+        },
+    )
     AppLogSheet(
         show = state.activeSheet is ReadBookSheet.AppLog,
         onDismissRequest = dismissSheet,
@@ -314,6 +378,69 @@ fun ReadBookScreen(
         onExportConfig = { onIntent(ReadBookIntent.OpenReadStyleExport) },
         styleConfig = state.styleConfig,
     )
+
+    val aloudPlayerViewModel: ReadAloudPlayerViewModel =
+        org.koin.androidx.compose.koinViewModel()
+    val aloudPlayerState by aloudPlayerViewModel.uiState.collectAsStateWithLifecycle()
+    val playerTheme = run {
+        val imageLoader: ImageLoader = koinInject()
+        val isNight = LegadoTheme.isDark
+        val useDefaultCover = usesDefaultBookCover(aloudPlayerState.coverPath)
+        val defaultCoverPaths = if (isNight) CoverConfig.defaultCoverDark else CoverConfig.defaultCover
+        val coverPath = remember(
+            aloudPlayerState.bookName,
+            aloudPlayerState.author,
+            aloudPlayerState.coverPath,
+            useDefaultCover,
+            isNight,
+            defaultCoverPaths,
+        ) {
+            if (useDefaultCover) {
+                BookCoverModel.getRandomDefaultPath(
+                    seed = aloudPlayerState.bookName,
+                    isNight = isNight,
+                )
+            } else {
+                aloudPlayerState.coverPath
+            }
+        }
+        val sourceOrigin = if (useDefaultCover) null else aloudPlayerState.sourceOrigin
+        val loadOnlyWifi = !useDefaultCover && CoverConfig.loadCoverOnlyWifi
+        val requestKey = remember(coverPath, sourceOrigin, loadOnlyWifi) {
+            listOf(coverPath, sourceOrigin, loadOnlyWifi)
+        }
+        val seedColor = rememberImageSeedColor(
+            imageLoader = imageLoader,
+            data = coverPath,
+            requestKey = requestKey,
+        ) {
+            setParameter("sourceOrigin", sourceOrigin)
+            setParameter("loadOnlyWifi", loadOnlyWifi)
+        }
+        rememberThemeOverride(seedColor)
+    }
+    ProvideThemeOverride(playerTheme.takeIf { state.activeSheet is ReadBookSheet.ReadAloudPlayer }) {
+        ReadAloudPlayerSheet(
+            show = state.activeSheet is ReadBookSheet.ReadAloudPlayer,
+            onDismissRequest = dismissSheet,
+            state = aloudPlayerState,
+            onIntent = aloudPlayerViewModel::onIntent,
+        )
+    }
+    LaunchedEffect(state.activeSheet) {
+        if (state.activeSheet is ReadBookSheet.ReadAloudPlayer) {
+            aloudPlayerViewModel.effects.collectLatest { effect ->
+                when (effect) {
+                    ReadAloudPlayerEffect.OpenToc -> onIntent(ReadBookIntent.OpenChapterList)
+                    ReadAloudPlayerEffect.ReturnToReaderSettings ->
+                        onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.ReadAloudConfig))
+                    ReadAloudPlayerEffect.ReturnToClassic ->
+                        onIntent(ReadBookIntent.OpenClassicReadAloudControls)
+                }
+            }
+        }
+    }
+
     val dictSheet = state.activeSheet as? ReadBookSheet.Dict
     DictSheet(
         show = dictSheet != null,
@@ -327,6 +454,16 @@ fun ReadBookScreen(
         sourceOrigin = photoSheet?.sourceOrigin,
         onDismissRequest = dismissSheet,
     )
+    val bookmarkSheet = state.activeSheet as? ReadBookSheet.Bookmark
+    bookmarkSheet?.let { sheet ->
+        BookmarkEditSheet(
+            show = true,
+            bookmark = sheet.bookmark,
+            onDismiss = dismissSheet,
+            onSave = { onIntent(ReadBookIntent.SaveBookmark(it)) },
+            onDelete = { onIntent(ReadBookIntent.DeleteBookmark(it)) },
+        )
+    }
 
     // AlertDialog-based sheets and special cases — conditionally composed
     when (state.activeSheet) {
@@ -342,15 +479,7 @@ fun ReadBookScreen(
             )
         }
 
-        is ReadBookSheet.TextSelectMenuFilterConfig -> {
-            TextSelectMenuFilterSheet(
-                show = true,
-                onDismissRequest = dismissSheet,
-                onFilterChanged = {
-                    onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TextSelectMenuFilter(it)))
-                }
-            )
-        }
+
 
         is ReadBookSheet.PageAnim -> {
             PageAnimConfigSheet(
@@ -382,9 +511,7 @@ fun ReadBookScreen(
             )
         }
 
-        is ReadBookSheet.Bookmark -> {
-            // Handled by ViewModel — redirects to menu route
-        }
+        is ReadBookSheet.Bookmark -> Unit
 
         is ReadBookSheet.InfoConfig -> {
             // Integrated into ReadStyleSheet's HeaderFooterPage
@@ -494,4 +621,10 @@ fun ReadBookScreen(
         // Sheets using AppModalBottomSheet are composed unconditionally above
         else -> {}
     }
+
+    ActionReminder(
+        reminder = if (state.menuVisible) null else state.activeReminder,
+        onAction = { reminder -> reminder.actionIntent?.let { onIntent(it) } },
+        onDismiss = { onIntent(ReadBookIntent.DismissReminder) },
+    )
 }

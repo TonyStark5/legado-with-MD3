@@ -36,6 +36,8 @@ import kotlin.reflect.KProperty
 @Suppress("ConstPropertyName")
 @Keep
 object ReadBookConfig {
+    var lastNavigationBarHeight: Int = 0
+
     private val readStyleRepository: ReadStyleRepository
         get() = GlobalContext.get().get()
 
@@ -92,6 +94,7 @@ object ReadBookConfig {
     const val tipBatteryClassic = 15
     const val tipTimeBatteryClassic = 16
     const val tipChapterTitleArrowClassic = 17
+    const val tipCustom = 18
     // endregion
 
     const val configFileName = "readConfig.json"
@@ -113,6 +116,12 @@ object ReadBookConfig {
     var bg: Drawable? = null
     var bgMeanColor: Int = 0
     val textColor: Int get() = durConfig.curTextColor()
+    val textColorNight: Int
+        get() = try {
+            durConfig.getTextColorNight().toColorInt()
+        } catch (_: Exception) {
+            0xFFADADAD.toInt()
+        }
     val textAccentColor: Int get() = durConfig.curTextAccentColor()
     val textShadowColor: Int get() = durConfig.curTextShadowColor()
     val menuColor: Int get() = readMenuAccentColor
@@ -209,6 +218,8 @@ object ReadBookConfig {
     var readMenuBottomBarLiquidGlassButtons by prefDelegate(PreferKey.readMenuBottomBarLiquidGlassButtons, false)
     var readMenuBorderColor by prefDelegate(PreferKey.readMenuBorderColor, 0)
     var readMenuBorderColorNight by prefDelegate(PreferKey.readMenuBorderColorNight, 0)
+    var readMenuTextColor by prefDelegate(PreferKey.readMenuTextColor, 0)
+    var readMenuTextColorNight by prefDelegate(PreferKey.readMenuTextColorNight, 0)
     var showTitleBarIcons by prefDelegate(PreferKey.showTitleBarIcons, true)
     var readSliderMode by prefDelegate(PreferKey.readSliderMode, "0")
     var showBrightnessView by prefDelegate(PreferKey.showBrightnessView, "1")
@@ -228,6 +239,7 @@ object ReadBookConfig {
 
     var readMenuColorMode by clampedPrefDelegate(PreferKey.readMenuColorMode, 1, 0..1)
     var readMenuIconStyle by clampedPrefDelegate(PreferKey.readMenuIconStyle, 0, 0..2)
+    var titleBarIconStyle by clampedPrefDelegate(PreferKey.titleBarIconStyle, 0, 0..2)
     var readMenuIconItemsPerRow by clampedPrefDelegate(PreferKey.readMenuIconItemsPerRow, 5, 2..8)
     var readMenuIconRowCount by clampedPrefDelegate(PreferKey.readMenuIconRowCount, 1, 1..2)
     var readMenuBottomCornerRadius by clampedPrefDelegate(PreferKey.readMenuBottomCornerRadius, 0, 0..32)
@@ -238,6 +250,7 @@ object ReadBookConfig {
     var readMenuBlurRadius by clampedPrefDelegate(PreferKey.readMenuBlurRadius, 24, 0..32)
     var readMenuBlurAlpha by clampedPrefDelegate(PreferKey.readMenuBlurAlpha, 60, 0..100)
     var readMenuBlurColor by prefDelegate(PreferKey.readMenuBlurColor, 0)
+    var readMenuBlurColorNight by prefDelegate(PreferKey.readMenuBlurColorNight, 0)
     var readMenuPaletteStyle: String = ""
     var readMenuLensRadius by clampedPrefDelegate(PreferKey.readMenuLensRadius, 24f, 0f..48f)
     var readMenuBorderWidth by clampedPrefDelegate(PreferKey.readMenuBorderWidth, 0, 0..4)
@@ -340,6 +353,12 @@ object ReadBookConfig {
 
     val resolvedMenuBorderColor: Int
         get() = if (ReadStyleResolver.isNightTheme()) readMenuBorderColorNight else readMenuBorderColor
+
+    val resolvedMenuTextColor: Int
+        get() = if (ReadStyleResolver.isNightTheme()) readMenuTextColorNight else readMenuTextColor
+
+    val resolvedMenuBlurColor: Int
+        get() = if (ReadStyleResolver.isNightTheme()) readMenuBlurColorNight else readMenuBlurColor
 
 
     val config get() = if (shareLayout) shareConfig else durConfig
@@ -530,6 +549,15 @@ object ReadBookConfig {
         set(value) {
             config.titleColor = value
         }
+
+    var titleColorNight: Int
+        get() = config.titleColorNight
+        set(value) {
+            config.titleColorNight = value
+        }
+
+    val resolvedTitleColor: Int
+        get() = if (ReadStyleResolver.isNightTheme()) titleColorNight else titleColor
 
     var paragraphIndent: String
         get() = config.paragraphIndent
@@ -725,6 +753,42 @@ object ReadBookConfig {
             config.tipFooterRight = value
         }
 
+    var customTipHeaderLeft: String
+        get() = config.customTipHeaderLeft
+        set(value) {
+            config.customTipHeaderLeft = value
+        }
+
+    var customTipHeaderMiddle: String
+        get() = config.customTipHeaderMiddle
+        set(value) {
+            config.customTipHeaderMiddle = value
+        }
+
+    var customTipHeaderRight: String
+        get() = config.customTipHeaderRight
+        set(value) {
+            config.customTipHeaderRight = value
+        }
+
+    var customTipFooterLeft: String
+        get() = config.customTipFooterLeft
+        set(value) {
+            config.customTipFooterLeft = value
+        }
+
+    var customTipFooterMiddle: String
+        get() = config.customTipFooterMiddle
+        set(value) {
+            config.customTipFooterMiddle = value
+        }
+
+    var customTipFooterRight: String
+        get() = config.customTipFooterRight
+        set(value) {
+            config.customTipFooterRight = value
+        }
+
     var headerMode: Int
         get() = config.headerMode
         set(value) {
@@ -743,11 +807,29 @@ object ReadBookConfig {
             config.tipHeaderColor = value
         }
 
+    var tipHeaderColorNight: Int
+        get() = config.tipHeaderColorNight
+        set(value) {
+            config.tipHeaderColorNight = value
+        }
+
+    val resolvedTipHeaderColor: Int
+        get() = if (ReadStyleResolver.isNightTheme()) tipHeaderColorNight else tipHeaderColor
+
     var tipFooterColor: Int
         get() = config.tipFooterColor
         set(value) {
             config.tipFooterColor = value
         }
+
+    var tipFooterColorNight: Int
+        get() = config.tipFooterColorNight
+        set(value) {
+            config.tipFooterColorNight = value
+        }
+
+    val resolvedTipFooterColor: Int
+        get() = if (ReadStyleResolver.isNightTheme()) tipFooterColorNight else tipFooterColor
 
     var tipDividerColor: Int
         get() = config.tipDividerColor
@@ -759,7 +841,7 @@ object ReadBookConfig {
         tipNone, tipBookName, tipChapterTitle, tipChapterTitleArrow, tipChapterTitleArrowClassic,
         tipTime, tipBattery, tipBatteryClassic, tipBatteryInside, tipBatteryIcon, tipBatteryPercentage,
         tipPage, tipTotalProgress, tipTotalProgress1, tipPageAndTotal, tipTimeBattery,
-        tipTimeBatteryClassic, tipTimeBatteryPercentage
+        tipTimeBatteryClassic, tipTimeBatteryPercentage, tipCustom
     )
     val tipNames get() = appCtx.resources.getStringArray(R.array.read_tip).toList()
     val tipColorNames get() = appCtx.resources.getStringArray(R.array.tip_color).toList()
@@ -801,6 +883,7 @@ object ReadBookConfig {
             exportConfig.titleTopSpacing = shareConfig.titleTopSpacing
             exportConfig.titleBottomSpacing = shareConfig.titleBottomSpacing
             exportConfig.titleColor = shareConfig.titleColor
+            exportConfig.titleColorNight = shareConfig.titleColorNight
             exportConfig.paddingBottom = shareConfig.paddingBottom
             exportConfig.paddingLeft = shareConfig.paddingLeft
             exportConfig.paddingRight = shareConfig.paddingRight
@@ -822,7 +905,9 @@ object ReadBookConfig {
             exportConfig.tipFooterMiddle = shareConfig.tipFooterMiddle
             exportConfig.tipFooterRight = shareConfig.tipFooterRight
             exportConfig.tipHeaderColor = shareConfig.tipHeaderColor
+            exportConfig.tipHeaderColorNight = shareConfig.tipHeaderColorNight
             exportConfig.tipFooterColor = shareConfig.tipFooterColor
+            exportConfig.tipFooterColorNight = shareConfig.tipFooterColorNight
             exportConfig.headerMode = shareConfig.headerMode
             // MD3专有属性
             exportConfig.footerMode = shareConfig.footerMode
@@ -914,6 +999,7 @@ object ReadBookConfig {
         var titleTopSpacing: Int = 0,
         var titleBottomSpacing: Int = 0,
         var titleColor: Int = 0,
+        var titleColorNight: Int = 0,
         var titleBold: Int = 500,//是否粗体字 0:正常, 1:粗体, 2:细体
         var titleLineSpacingExtra: Int = 12,
         var titleLineSpacingSub: Int = 12,
@@ -951,8 +1037,16 @@ object ReadBookConfig {
         var tipFooterLeft: Int = tipChapterTitle,
         var tipFooterMiddle: Int = tipNone,
         var tipFooterRight: Int = tipPageAndTotal,
+        var customTipHeaderLeft: String = "",
+        var customTipHeaderMiddle: String = "",
+        var customTipHeaderRight: String = "",
+        var customTipFooterLeft: String = "",
+        var customTipFooterMiddle: String = "",
+        var customTipFooterRight: String = "",
         var tipHeaderColor: Int = 0,
+        var tipHeaderColorNight: Int = 0,
         var tipFooterColor: Int = 0,
+        var tipFooterColorNight: Int = 0,
         var tipDividerColor: Int = -1,
         var headerMode: Int = 0,
         var footerMode: Int = 0,
@@ -1063,6 +1157,7 @@ object ReadBookConfig {
             "titleTopSpacing" to titleTopSpacing,
             "titleBottomSpacing" to titleBottomSpacing,
             "titleColor" to titleColor,
+            "titleColorNight" to titleColorNight,
             "paragraphIndent" to paragraphIndent,
             "paddingBottom" to paddingBottom,
             "paddingLeft" to paddingLeft,
@@ -1085,7 +1180,9 @@ object ReadBookConfig {
             "tipFooterMiddle" to tipFooterMiddle,
             "tipFooterRight" to tipFooterRight,
             "tipHeaderColor" to tipHeaderColor,
+            "tipHeaderColorNight" to tipHeaderColorNight,
             "tipFooterColor" to tipFooterColor,
+            "tipFooterColorNight" to tipFooterColorNight,
             "tipDividerColor" to tipDividerColor,
             "headerMode" to headerMode,
             "footerMode" to footerMode,

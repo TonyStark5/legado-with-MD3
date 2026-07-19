@@ -3,11 +3,12 @@ package io.legado.app.data.repository
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
+import io.legado.app.data.entities.SearchContentHistory
+import io.legado.app.data.dao.SearchContentHistoryDao
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.config.AppConfig
-import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.ui.book.searchContent.SearchResult
 import io.legado.app.utils.ChineseUtils
 import kotlinx.coroutines.Dispatchers
@@ -17,10 +18,70 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
-class SearchContentRepository {
+class SearchContentRepository(
+    private val titleModeProvider: () -> Int = { 0 },
+    private val historyDao: SearchContentHistoryDao? = null,
+) {
+
+    private val effectiveHistoryDao: SearchContentHistoryDao
+        get() = historyDao ?: appDb.searchContentHistoryDao
+
+    fun observeHistory(book: Book?, onlyThisBook: Boolean): Flow<List<SearchContentHistory>> =
+        if (onlyThisBook && book != null) {
+            effectiveHistoryDao.getByBook(book.name, book.author)
+        } else {
+            effectiveHistoryDao.getAll()
+        }
+
+    suspend fun saveHistory(book: Book, query: String) {
+        val history = effectiveHistoryDao.get(book.name, book.author, query)
+            ?: SearchContentHistory(bookName = book.name, bookAuthor = book.author, query = query)
+        history.time = System.currentTimeMillis()
+        effectiveHistoryDao.insert(history)
+    }
+
+    suspend fun deleteHistory(id: Long) = effectiveHistoryDao.delete(id)
+
+    suspend fun clearHistory(book: Book?, onlyThisBook: Boolean) {
+        if (onlyThisBook && book != null) {
+            effectiveHistoryDao.deleteByBook(book.name, book.author)
+        } else {
+            effectiveHistoryDao.deleteAll()
+        }
+    }
 
     private var lastSearchResults: List<SearchResult>? = null
     private var lastQueryKey: String? = null
+    private var lastSearchSession: SearchSession? = null
+
+    data class SearchSession(
+        val bookUrl: String,
+        val query: String,
+        val replaceEnabled: Boolean,
+        val regexReplace: Boolean,
+        val results: List<SearchResult>,
+    )
+
+    fun getLastSession(bookUrl: String): SearchSession? {
+        return lastSearchSession?.takeIf { it.bookUrl == bookUrl }
+    }
+
+    fun beginSearch(
+        bookUrl: String,
+        query: String,
+        replaceEnabled: Boolean,
+        regexReplace: Boolean,
+    ) {
+        cacheResults(bookUrl, query, replaceEnabled, regexReplace, emptyList())
+    }
+
+    fun clearSession(bookUrl: String) {
+        if (lastSearchSession?.bookUrl == bookUrl) {
+            lastSearchResults = null
+            lastQueryKey = null
+            lastSearchSession = null
+        }
+    }
 
     fun getCache(
         bookUrl: String,
@@ -62,14 +123,33 @@ class SearchContentRepository {
 
                 if (chapterResults.isNotEmpty()) {
                     allResults.addAll(chapterResults)
+                    cacheResults(book.bookUrl, query, replaceEnabled, regexReplace, allResults)
                     emit(ArrayList(allResults))
                 }
             }
         }
-        lastSearchResults = allResults
-        lastQueryKey = searchKey(book.bookUrl, query, replaceEnabled, regexReplace)
+        cacheResults(book.bookUrl, query, replaceEnabled, regexReplace, allResults)
         emit(ArrayList(allResults))
     }.flowOn(Dispatchers.Default)
+
+    private fun cacheResults(
+        bookUrl: String,
+        query: String,
+        replaceEnabled: Boolean,
+        regexReplace: Boolean,
+        results: List<SearchResult>,
+    ) {
+        val cachedResults = ArrayList(results)
+        lastSearchResults = cachedResults
+        lastQueryKey = searchKey(bookUrl, query, replaceEnabled, regexReplace)
+        lastSearchSession = SearchSession(
+            bookUrl = bookUrl,
+            query = query,
+            replaceEnabled = replaceEnabled,
+            regexReplace = regexReplace,
+            results = cachedResults,
+        )
+    }
 
     private fun searchKey(
         bookUrl: String,
@@ -77,7 +157,7 @@ class SearchContentRepository {
         replaceEnabled: Boolean,
         regexReplace: Boolean
     ): String {
-        return "$bookUrl-$query-$replaceEnabled-$regexReplace-${ReadBookConfig.titleMode}"
+        return "$bookUrl-$query-$replaceEnabled-$regexReplace-${titleModeProvider()}"
     }
 
     private suspend fun searchChapter(
@@ -104,7 +184,7 @@ class SearchContentRepository {
             includeTitle = false,
             useReplace = replaceEnabled
         )
-        val includeTitle = ReadBookConfig.titleMode != 2 ||
+        val includeTitle = titleModeProvider() != 2 ||
                 chapter.isVolume ||
                 bodyContent.textList.isEmpty()
         val mContent = if (includeTitle) {

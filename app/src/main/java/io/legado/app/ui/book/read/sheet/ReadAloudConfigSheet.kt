@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -19,11 +21,15 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -43,8 +49,11 @@ import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.settingItem.SliderSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyClickableSettingItem
+import io.legado.app.ui.widget.components.settingItem.TinyDropdownSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySwitchSettingItem
+import io.legado.app.ui.widget.components.tabRow.CardTabRow
 import io.legado.app.utils.GSON
+import kotlinx.coroutines.launch
 
 @Composable
 fun ReadAloudConfigSheet(
@@ -53,6 +62,11 @@ fun ReadAloudConfigSheet(
     onIntent: (ReadBookIntent) -> Unit,
     onDismissRequest: () -> Unit,
 ) {
+    val pagerState = rememberPagerState(pageCount = { 2 })
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(show) {
+        if (show) pagerState.scrollToPage(0)
+    }
     AppModalBottomSheet(
         show = show,
         onDismissRequest = onDismissRequest,
@@ -60,10 +74,51 @@ fun ReadAloudConfigSheet(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp)
-                .verticalScroll(rememberScrollState()),
+                .fillMaxWidth(),
         ) {
+            CardTabRow(
+                tabTitles = listOf(
+                    stringResource(R.string.read_aloud_settings_general_tab),
+                    stringResource(R.string.read_aloud_settings_voice_tab),
+                ),
+                selectedTabIndex = pagerState.currentPage,
+                onTabSelected = { page ->
+                    scope.launch { pagerState.animateScrollToPage(page) }
+                }
+            )
+            HorizontalPager(
+                state = pagerState,
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
+            ) { page ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 16.dp),
+                ) {
+            if (page == 0) {
+            TinyDropdownSettingItem(
+                title = stringResource(R.string.default_read_aloud_interface),
+                selectedValue = state.defaultReadAloudInterface,
+                displayEntries = arrayOf(
+                    stringResource(R.string.read_aloud_interface_classic),
+                    stringResource(R.string.read_aloud_interface_player),
+                ),
+                entryValues = arrayOf("classic", "player"),
+                description = stringResource(R.string.default_read_aloud_interface_summary),
+                onValueChange = { onIntent(ReadBookIntent.SetDefaultReadAloudInterface(it)) },
+            )
+            TinySwitchSettingItem(
+                title = stringResource(R.string.show_read_aloud_capsule),
+                description = stringResource(R.string.show_read_aloud_capsule_summary),
+                checked = state.showReadAloudCapsule,
+                onCheckedChange = {
+                    onIntent(ReadBookIntent.SetShowReadAloudCapsule(it))
+                },
+            )
             TinySwitchSettingItem(
                 title = stringResource(R.string.ignore_audio_focus_title),
                 description = stringResource(R.string.ignore_audio_focus_summary),
@@ -122,11 +177,52 @@ fun ReadAloudConfigSheet(
                 },
             )
             TinyClickableSettingItem(
-                title = stringResource(R.string.speak_engine),
-                description = state.speakEngineName.ifEmpty {
-                    stringResource(R.string.system_tts)
-                },
+                title = stringResource(R.string.reset_read_aloud_capsule_position),
+                description = stringResource(R.string.reset_read_aloud_capsule_position_summary),
+                onClick = { onIntent(ReadBookIntent.ResetReadAloudCapsulePosition) },
+            )
+            } else {
+            TinyClickableSettingItem(
+                title = stringResource(R.string.read_aloud_default_engine),
+                description = stringResource(
+                    R.string.read_aloud_default_engine_summary,
+                    state.speakEngineName.ifEmpty { stringResource(R.string.system_tts) },
+                ),
                 onClick = { onIntent(ReadBookIntent.SelectSpeakEngine) },
+            )
+            TinyClickableSettingItem(
+                title = stringResource(R.string.read_aloud_engines_and_voices),
+                description = stringResource(R.string.read_aloud_engines_and_voices_summary),
+                onClick = { onIntent(ReadBookIntent.OpenTtsEnginesAndVoices) },
+            )
+            TinyClickableSettingItem(
+                title = stringResource(R.string.read_aloud_character_casting),
+                description = stringResource(R.string.book_voice_casting_entry_summary),
+                onClick = { onIntent(ReadBookIntent.OpenBookVoiceCasting) },
+            )
+            TinyDropdownSettingItem(
+                title = stringResource(R.string.speech_analysis_mode),
+                selectedValue = state.speechAnalysisMode,
+                displayEntries = arrayOf(
+                    stringResource(R.string.speech_analysis_rule),
+                    stringResource(R.string.speech_analysis_rule_ai),
+                    stringResource(R.string.speech_analysis_ai),
+                ),
+                entryValues = arrayOf("rule", "rule_with_ai", "ai_understanding"),
+                description = when (state.speechAnalysisMode) {
+                    "rule_with_ai" -> stringResource(R.string.speech_analysis_rule_ai_summary)
+                    "ai_understanding" -> stringResource(R.string.speech_analysis_ai_summary)
+                    else -> stringResource(R.string.speech_analysis_rule_summary)
+                },
+                onValueChange = { onIntent(ReadBookIntent.SetSpeechAnalysisMode(it)) },
+            )
+            TinySwitchSettingItem(
+                title = stringResource(R.string.use_multi_speaker),
+                description = stringResource(R.string.use_multi_speaker_summary),
+                checked = state.useMultiSpeaker,
+                onCheckedChange = {
+                    onIntent(ReadBookIntent.SetUseMultiSpeaker(it))
+                },
             )
             TinyClickableSettingItem(
                 title = stringResource(R.string.sys_tts_config),
@@ -137,6 +233,10 @@ fun ReadAloudConfigSheet(
                 onClick = { onIntent(ReadBookIntent.OpenPreDownloadNumPicker) },
             )
             TinyClickableSettingItem(
+                title = stringResource(R.string.tts_paragraph_interval),
+                onClick = { onIntent(ReadBookIntent.OpenParagraphIntervalPicker) },
+            )
+            TinyClickableSettingItem(
                 title = stringResource(R.string.audio_cache_clean_time),
                 onClick = { onIntent(ReadBookIntent.OpenCacheCleanTimePicker) },
             )
@@ -144,6 +244,9 @@ fun ReadAloudConfigSheet(
                 title = stringResource(R.string.clear_cache),
                 onClick = { onIntent(ReadBookIntent.ClearTtsCache) },
             )
+            }
+                }
+            }
         }
     }
 }
@@ -164,7 +267,7 @@ fun SpeakEngineConfigSheet(
     AppAlertDialog(
         show = pendingEngineSelection != null,
         onDismissRequest = { pendingEngineSelection = null },
-        title = stringResource(R.string.speak_engine),
+        title = stringResource(R.string.read_aloud_default_engine),
         text = stringResource(R.string.speak_engine_apply_scope),
         confirmText = stringResource(R.string.general),
         onConfirm = {
@@ -217,11 +320,12 @@ fun SpeakEngineConfigSheet(
     AppModalBottomSheet(
         show = show,
         onDismissRequest = onDismissRequest,
-        title = stringResource(R.string.speak_engine),
+        title = stringResource(R.string.read_aloud_default_engine),
         startAction = {
             SmallTonalButton(
                 onClick = { onIntent(ReadBookIntent.EditHttpTts()) },
-                icon = Icons.Default.Add
+                        icon = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.add)
             )
         },
         endAction = {
@@ -229,7 +333,8 @@ fun SpeakEngineConfigSheet(
             Box {
                 SmallTonalButton(
                     onClick = { expanded = true },
-                    icon = Icons.Default.MoreVert
+                        icon = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.more_menu)
                 )
                 RoundDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     RoundDropdownMenuItem(
@@ -276,7 +381,7 @@ fun SpeakEngineConfigSheet(
                 TinyClickableSettingItem(
                     title = item.title,
                     description = if (isSelected) {
-                        stringResource(R.string.default_version)
+                        stringResource(R.string.read_aloud_current_default_summary)
                     } else {
                         null
                     },
@@ -289,11 +394,13 @@ fun SpeakEngineConfigSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 SmallTonalButton(
                                     onClick = { onIntent(ReadBookIntent.EditHttpTts(httpTtsId)) },
-                                    icon = Icons.Default.Edit,
+                        icon = Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.edit),
                                 )
                                 SmallTonalButton(
                                     onClick = { onIntent(ReadBookIntent.DeleteHttpTts(httpTtsId)) },
-                                    icon = Icons.Default.Delete,
+                        icon = Icons.Default.Delete,
+                        contentDescription = stringResource(R.string.delete),
                                 )
                             }
                         }
@@ -334,7 +441,8 @@ fun HttpTtsEditSheet(
             Box {
                 SmallTonalButton(
                     onClick = { expanded = true },
-                    icon = Icons.Default.MoreVert
+                        icon = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.more_menu)
                 )
                 RoundDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     RoundDropdownMenuItem(
@@ -377,6 +485,7 @@ fun HttpTtsEditSheet(
         endAction = {
             SmallTonalButton(
                 icon = Icons.Default.Save,
+                contentDescription = stringResource(R.string.save),
                 onClick = {
                     onIntent(
                         ReadBookIntent.SaveHttpTts(

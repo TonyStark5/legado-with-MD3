@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FindReplace
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material.icons.filled.Web
@@ -63,15 +65,32 @@ import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun MyScreen(
+fun MyRouteScreen(
     viewModel: MyViewModel = koinViewModel(),
     onOpenSettings: () -> Unit,
+    onNavigateToChat: () -> Unit,
     onNavigate: (PrefClickEvent) -> Unit
 ) {
-
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
+    MyScreen(
+        state = uiState,
+        onIntent = viewModel::onIntent,
+        onOpenSettings = onOpenSettings,
+        onNavigateToChat = onNavigateToChat,
+        onNavigate = onNavigate,
+    )
+}
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun MyScreen(
+    state: MyUiState,
+    onIntent: (MyIntent) -> Unit,
+    onOpenSettings: () -> Unit,
+    onNavigateToChat: () -> Unit,
+    onNavigate: (PrefClickEvent) -> Unit,
+) {
+    val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
     AppScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.systemBars
@@ -90,7 +109,7 @@ fun MyScreen(
                             )
                         },
                         imageVector = Icons.AutoMirrored.Filled.HelpOutline,
-                        contentDescription = null
+                        contentDescription = stringResource(R.string.help)
                     )
                 },
                 scrollBehavior = scrollBehavior
@@ -112,9 +131,9 @@ fun MyScreen(
                 title = ""
             ) {
                 WebServiceSettingBlock(
-                    uiState = uiState,
+                    uiState = state,
                     onToggleWebService = {
-                        viewModel.onEvent(PrefClickEvent.ToggleWebService)
+                        onIntent(MyIntent.ToggleWebService)
                     },
                     onNavigate = onNavigate
                 )
@@ -160,11 +179,21 @@ fun MyScreen(
                         )
                     }
                 )
+                ClickableSettingItem(
+                    title = stringResource(R.string.highlight_tag_config),
+                    imageVector = Icons.Default.Sell,
+                    onClick = { onNavigate(PrefClickEvent.OpenHighlightTagRule) }
+                )
             }
 
             SplicedColumnGroup(
                 title = stringResource(R.string.other)
             ) {
+                ClickableSettingItem(
+                    title = stringResource(R.string.ai_chat),
+                    imageVector = Icons.Default.AutoAwesome,
+                    onClick = onNavigateToChat
+                )
                 ClickableSettingItem(
                     title = stringResource(R.string.setting),
                     imageVector = Icons.Default.Settings,
@@ -271,4 +300,3 @@ fun WebServiceSettingBlock(
         }
     }
 }
-

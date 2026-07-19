@@ -201,10 +201,11 @@
 		<item>Time and Battery</item>
 		<item>Time and Battery Classic</item>
 		<item>Time and Battery%</item>
+		<item>Custom</item>
 	</string-array>
 
 	<string-array name="text_font_weight">
-		<item>Normal</item>
+		<item>Regular</item>
 		<item>Bold</item>
 		<item>Light</item>
 	</string-array>
@@ -260,7 +261,7 @@
 	<string-array name="default_home_page">
 		<item>@string/home</item>
 		<item>@string/bookshelf</item>
-		<item>@string/discovery</item>
+        <item>@string/discovery</item>
 		<item>@string/rss</item>
 		<item>@string/my</item>
 	</string-array>
@@ -327,6 +328,12 @@
 		<item>Selected</item>
 		<item>Labeled</item>
 		<item>Unlabeled</item>
+	</string-array>
+
+	<string-array name="book_info_background_blur_entries">
+		<item>@string/book_info_background_blur_off</item>
+		<item>@string/book_info_background_blur_on</item>
+		<item>@string/book_info_background_blur_off_for_default</item>
 	</string-array>
 
 	<string-array name="customContrast">

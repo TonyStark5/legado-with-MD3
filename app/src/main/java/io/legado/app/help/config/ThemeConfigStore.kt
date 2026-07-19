@@ -45,7 +45,15 @@ object ThemeConfigStore {
 
     fun applyDayNight(context: Context) {
         initNightMode()
-        postEvent(EventBus.RECREATE, "")
+        postEvent(EventBus.UP_CONFIG, arrayListOf(2))
+    }
+
+    /**
+     * Compose 界面通过 ThemeConfig.themeMode 快照状态自动换色；旧 View 界面由
+     * BaseActivity 的兼容策略决定热更新、重新绑定或受控重建。
+     */
+    fun applyDayNightLive() {
+        initNightMode()
         postEvent(EventBus.UP_CONFIG, arrayListOf(2))
     }
 

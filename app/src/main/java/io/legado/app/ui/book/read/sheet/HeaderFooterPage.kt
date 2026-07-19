@@ -10,9 +10,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -24,8 +22,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,7 +41,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,10 +52,14 @@ import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.FontFolderState
 import io.legado.app.ui.widget.components.FontSelectSheet
+import io.legado.app.ui.widget.components.dialog.CustomTipDialog
 import io.legado.app.ui.widget.components.SectionTitle
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
+import io.legado.app.ui.widget.components.pager.pagerHeight
+import io.legado.app.ui.widget.components.pager.rememberPagerAnimatedHeight
 import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.settingItem.TinyClickableSettingItem
+import io.legado.app.ui.widget.components.settingItem.TinyColorModeSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyColorSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyDropdownSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
@@ -74,6 +73,8 @@ import org.koin.compose.koinInject
 private const val COLOR_HEADER = 7
 private const val COLOR_FOOTER = 8
 private const val COLOR_DIVIDER = 9
+private const val COLOR_HEADER_NIGHT = 10
+private const val COLOR_FOOTER_NIGHT = 11
 
 @Composable
 internal fun HeaderFooterPage(
@@ -110,6 +111,9 @@ internal fun HeaderFooterPage(
     var footerLeft by remember { mutableIntStateOf(ReadBookConfig.tipFooterLeft) }
     var footerMiddle by remember { mutableIntStateOf(ReadBookConfig.tipFooterMiddle) }
     var footerRight by remember { mutableIntStateOf(ReadBookConfig.tipFooterRight) }
+
+    // 对哪个位置正在编辑自定义模板（null 表示未打开弹窗）
+    var editingCustomTarget by remember { mutableStateOf<CustomTipTarget?>(null) }
 
     // Line toggles
     var showHeaderLine by remember { mutableStateOf(ReadBookConfig.showHeaderLine) }
@@ -188,6 +192,48 @@ internal fun HeaderFooterPage(
             footerRight = ReadBookConfig.tipNone
             onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterRight(ReadBookConfig.tipNone)))
         }
+    }
+
+    fun applyTipValue(target: CustomTipTarget, value: Int) {
+        when (target) {
+            CustomTipTarget.HEADER_LEFT -> {
+                headerLeft = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderLeft(value)))
+            }
+            CustomTipTarget.HEADER_MIDDLE -> {
+                headerMiddle = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderMiddle(value)))
+            }
+            CustomTipTarget.HEADER_RIGHT -> {
+                headerRight = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderRight(value)))
+            }
+            CustomTipTarget.FOOTER_LEFT -> {
+                footerLeft = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterLeft(value)))
+            }
+            CustomTipTarget.FOOTER_MIDDLE -> {
+                footerMiddle = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterMiddle(value)))
+            }
+            CustomTipTarget.FOOTER_RIGHT -> {
+                footerRight = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterRight(value)))
+            }
+        }
+    }
+
+    /**
+     * 当某个位置的 tip 被切换时统一处理：清空同值重复、更新本地 state、派发 ConfigUpdate，
+     * 必要时自动弹出自定义模板编辑弹窗。
+     */
+    fun handleTipChange(target: CustomTipTarget, value: Int) {
+        if (value == ReadBookConfig.tipCustom) {
+            editingCustomTarget = target
+            return
+        }
+        clearRepeat(value)
+        applyTipValue(target, value)
     }
 
     LaunchedEffect(pagerState) {
@@ -270,52 +316,54 @@ internal fun HeaderFooterPage(
                             value = headerLeft,
                             tipNames = tipNames,
                             tipValues = tipValues,
-                            onValueChange = {
-                                clearRepeat(it)
-                                headerLeft = it
-                                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderLeft(it)))
-                            },
+                            onValueChange = { handleTipChange(CustomTipTarget.HEADER_LEFT, it) },
                         )
                         TipPositionDropdown(
                             label = stringResource(R.string.middle),
                             value = headerMiddle,
                             tipNames = tipNames,
                             tipValues = tipValues,
-                            onValueChange = {
-                                clearRepeat(it)
-                                headerMiddle = it
-                                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderMiddle(it)))
-                            },
+                            onValueChange = { handleTipChange(CustomTipTarget.HEADER_MIDDLE, it) },
                         )
                         TipPositionDropdown(
                             label = stringResource(R.string.right),
                             value = headerRight,
                             tipNames = tipNames,
                             tipValues = tipValues,
-                            onValueChange = {
-                                clearRepeat(it)
-                                headerRight = it
-                                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderRight(it)))
-                            },
+                            onValueChange = { handleTipChange(CustomTipTarget.HEADER_RIGHT, it) },
                         )
-                        TinyColorSettingItem(
+                        TinyColorModeSettingItem(
                             title = stringResource(R.string.header_color),
-                            colorValue = if (ReadBookConfig.tipHeaderColor != 0) {
+                            dayColor = if (ReadBookConfig.tipHeaderColor != 0) {
                                 ReadBookConfig.tipHeaderColor
                             } else {
                                 ReadBookConfig.textColor
                             },
-                            onClick = {
-                                colorPickerId = COLOR_HEADER
-                                colorPickerInitial = if (ReadBookConfig.tipHeaderColor != 0) {
-                                    ReadBookConfig.tipHeaderColor
+                            nightColor = if (ReadBookConfig.tipHeaderColorNight != 0) {
+                                ReadBookConfig.tipHeaderColorNight
+                            } else {
+                                ReadBookConfig.textColorNight
+                            },
+                            onClickColor = { isNight ->
+                                if (isNight) {
+                                    colorPickerId = COLOR_HEADER_NIGHT
+                                    colorPickerInitial = if (ReadBookConfig.tipHeaderColorNight != 0) {
+                                        ReadBookConfig.tipHeaderColorNight
+                                    } else {
+                                        ReadBookConfig.textColorNight
+                                    }
                                 } else {
-                                    ReadBookConfig.textColor
+                                    colorPickerId = COLOR_HEADER
+                                    colorPickerInitial = if (ReadBookConfig.tipHeaderColor != 0) {
+                                        ReadBookConfig.tipHeaderColor
+                                    } else {
+                                        ReadBookConfig.textColor
+                                    }
                                 }
                                 showColorPicker = true
                             },
                         )
-                        Spacer(Modifier.height(8.dp))
+
                         TinyClickableSettingItem(
                             title = stringResource(R.string.padding),
                             description = stringResource(
@@ -400,52 +448,54 @@ internal fun HeaderFooterPage(
                             value = footerLeft,
                             tipNames = tipNames,
                             tipValues = tipValues,
-                            onValueChange = {
-                                clearRepeat(it)
-                                footerLeft = it
-                                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterLeft(it)))
-                            },
+                            onValueChange = { handleTipChange(CustomTipTarget.FOOTER_LEFT, it) },
                         )
                         TipPositionDropdown(
                             label = stringResource(R.string.middle),
                             value = footerMiddle,
                             tipNames = tipNames,
                             tipValues = tipValues,
-                            onValueChange = {
-                                clearRepeat(it)
-                                footerMiddle = it
-                                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterMiddle(it)))
-                            },
+                            onValueChange = { handleTipChange(CustomTipTarget.FOOTER_MIDDLE, it) },
                         )
                         TipPositionDropdown(
                             label = stringResource(R.string.right),
                             value = footerRight,
                             tipNames = tipNames,
                             tipValues = tipValues,
-                            onValueChange = {
-                                clearRepeat(it)
-                                footerRight = it
-                                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterRight(it)))
-                            },
+                            onValueChange = { handleTipChange(CustomTipTarget.FOOTER_RIGHT, it) },
                         )
-                        TinyColorSettingItem(
+                        TinyColorModeSettingItem(
                             title = stringResource(R.string.footer_color),
-                            colorValue = if (ReadBookConfig.tipFooterColor != 0) {
+                            dayColor = if (ReadBookConfig.tipFooterColor != 0) {
                                 ReadBookConfig.tipFooterColor
                             } else {
                                 ReadBookConfig.textColor
                             },
-                            onClick = {
-                                colorPickerId = COLOR_FOOTER
-                                colorPickerInitial = if (ReadBookConfig.tipFooterColor != 0) {
-                                    ReadBookConfig.tipFooterColor
+                            nightColor = if (ReadBookConfig.tipFooterColorNight != 0) {
+                                ReadBookConfig.tipFooterColorNight
+                            } else {
+                                ReadBookConfig.textColorNight
+                            },
+                            onClickColor = { isNight ->
+                                if (isNight) {
+                                    colorPickerId = COLOR_FOOTER_NIGHT
+                                    colorPickerInitial = if (ReadBookConfig.tipFooterColorNight != 0) {
+                                        ReadBookConfig.tipFooterColorNight
+                                    } else {
+                                        ReadBookConfig.textColorNight
+                                    }
                                 } else {
-                                    ReadBookConfig.textColor
+                                    colorPickerId = COLOR_FOOTER
+                                    colorPickerInitial = if (ReadBookConfig.tipFooterColor != 0) {
+                                        ReadBookConfig.tipFooterColor
+                                    } else {
+                                        ReadBookConfig.textColor
+                                    }
                                 }
                                 showColorPicker = true
                             },
                         )
-                        Spacer(Modifier.height(8.dp))
+
                         TinyClickableSettingItem(
                             title = stringResource(R.string.padding),
                             description = stringResource(
@@ -560,8 +610,16 @@ internal fun HeaderFooterPage(
                     onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderColor(color)))
                 }
 
+                COLOR_HEADER_NIGHT -> {
+                    onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipHeaderColorNight(color)))
+                }
+
                 COLOR_FOOTER -> {
                     onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterColor(color)))
+                }
+
+                COLOR_FOOTER_NIGHT -> {
+                    onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TipFooterColorNight(color)))
                 }
 
                 COLOR_DIVIDER -> {
@@ -586,6 +644,21 @@ internal fun HeaderFooterPage(
         }
     }
     val systemTypefaces = stringArrayResource(R.array.system_typefaces)
+
+    val editingCustomInitial: String = editingCustomTarget?.customTemplate.orEmpty()
+
+    CustomTipDialog(
+        show = editingCustomTarget != null,
+        initialTemplate = editingCustomInitial,
+        onConfirm = { template ->
+            editingCustomTarget?.let { target ->
+                applyTipValue(target, ReadBookConfig.tipCustom)
+                target.applyTemplate(template, onIntent)
+            }
+            editingCustomTarget = null
+        },
+        onDismissRequest = { editingCustomTarget = null },
+    )
 
     FontSelectSheet(
         show = showFontSelect,

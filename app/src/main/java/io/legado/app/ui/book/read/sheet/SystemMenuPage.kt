@@ -4,21 +4,25 @@ import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -27,14 +31,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Translate
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -50,40 +48,37 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.constant.ReadMenuBlurMode
 import io.legado.app.constant.ReadMenuBlurStyle
 import io.legado.app.data.repository.ReadPreferences
-import io.legado.app.data.repository.ReadSettingsRepository
 import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.ui.book.read.ConfigUpdate
 import io.legado.app.ui.book.read.ReadBookButtonConfigItem
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.book.read.ReadBookSheet
 import io.legado.app.ui.theme.LegadoTheme
-import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.SectionTitle
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
+import io.legado.app.ui.widget.components.pager.pagerHeight
+import io.legado.app.ui.widget.components.pager.rememberPagerAnimatedHeight
+import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.settingItem.TinyClearColorModeSettingItem
-import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.settingItem.TinyClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyColorModeSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyDropdownSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySwitchSettingItem
 import io.legado.app.ui.widget.components.tabRow.CardTabRow
+import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
 import kotlinx.coroutines.launch
-import org.koin.compose.koinInject
 
 private const val COLOR_BG = 5
 private const val COLOR_MENU_ACCENT = 6
@@ -94,19 +89,19 @@ private const val COLOR_MENU_CONTAINER_NIGHT = 10
 private const val COLOR_BORDER = 11
 private const val COLOR_BORDER_NIGHT = 12
 private const val COLOR_BLUR_TINT = 13
+private const val COLOR_BLUR_TINT_NIGHT = 14
+private const val COLOR_MENU_TEXT = 15
+private const val COLOR_MENU_TEXT_NIGHT = 16
 
 @Composable
 internal fun SystemMenuPage(
+    preferences: ReadPreferences,
     customIcons: Map<String, String>,
     bottomBarButtons: List<ReadBookButtonConfigItem>,
     modifier: Modifier = Modifier,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
     val context = LocalContext.current
-    val readSettingsRepository: ReadSettingsRepository = koinInject()
-    val preferences by readSettingsRepository.preferences.collectAsStateWithLifecycle(
-        initialValue = ReadPreferences()
-    )
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(pageCount = { 3 })
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -180,8 +175,6 @@ internal fun SystemMenuPage(
                 when (page) {
                     0 -> GlobalMenuTab(
                         preferences = preferences,
-                        readBarStyle = preferences.readBarStyle,
-                        readMenuColorMode = preferences.readMenuColorMode,
                         onIntent = onIntent,
                         onShowColorPicker = { id, initial ->
                             colorPickerId = id
@@ -224,6 +217,9 @@ internal fun SystemMenuPage(
                 COLOR_BORDER -> onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.BorderColor(color)))
                 COLOR_BORDER_NIGHT -> onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.BorderColorNight(color)))
                 COLOR_BLUR_TINT -> onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuBlurColor(color)))
+                COLOR_BLUR_TINT_NIGHT -> onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuBlurColorNight(color)))
+                COLOR_MENU_TEXT -> onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuTextColor(color)))
+                COLOR_MENU_TEXT_NIGHT -> onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuTextColorNight(color)))
             }
             showColorPicker = false
         },
@@ -243,15 +239,11 @@ internal fun SystemMenuPage(
 @Composable
 private fun GlobalMenuTab(
     preferences: ReadPreferences,
-    readBarStyle: Int,
-    readMenuColorMode: Int,
     onIntent: (ReadBookIntent) -> Unit,
     onShowColorPicker: (Int, Int) -> Unit,
 ) {
-    var bottomMode by remember(readBarStyle) { mutableIntStateOf(readBarStyle) }
-    var colorMode by remember(readMenuColorMode) {
-        mutableIntStateOf(readMenuColorMode.coerceIn(0, 1))
-    }
+    val bottomMode = preferences.readBarStyle
+    val colorMode = preferences.readMenuColorMode.coerceIn(0, 1)
     val dayMenuBgColor = preferences.readMenuBgColor
         .takeIf { it != 0 }
         ?: ReadBookConfig.durConfig.menuBgColor(isNight = false)
@@ -287,8 +279,7 @@ private fun GlobalMenuTab(
             ),
             entryValues = arrayOf("0", "1", "2"),
             onValueChange = {
-                bottomMode = it.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.ReadBarStyle(bottomMode)))
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.ReadBarStyle(it.toInt())))
             },
         )
 
@@ -320,8 +311,7 @@ private fun GlobalMenuTab(
                     ),
                     entryValues = arrayOf("0", "1"),
                     onValueChange = {
-                        colorMode = it.toInt()
-                        onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuColorMode(colorMode)))
+                        onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuColorMode(it.toInt())))
                     },
                 )
 
@@ -391,10 +381,9 @@ private fun GlobalMenuTab(
             }
         }
 
-        var iconPosition by remember { mutableIntStateOf(preferences.titleBarIconPosition) }
         TinyDropdownSettingItem(
             title = stringResource(R.string.title_bar_icon_position),
-            selectedValue = iconPosition.toString(),
+            selectedValue = preferences.titleBarIconPosition.toString(),
             displayEntries = arrayOf(
                 stringResource(R.string.position_top_start),
                 stringResource(R.string.position_top_end),
@@ -403,8 +392,11 @@ private fun GlobalMenuTab(
             ),
             entryValues = arrayOf("0", "1", "2", "3"),
             onValueChange = {
-                iconPosition = it.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleBarIconPosition(iconPosition)))
+                onIntent(
+                    ReadBookIntent.UpdateConfig(
+                        ConfigUpdate.TitleBarIconPosition(it.toInt())
+                    )
+                )
             },
         )
         TinySwitchSettingItem(
@@ -414,8 +406,6 @@ private fun GlobalMenuTab(
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.ShowTitleBarIcons(it)))
             },
         )
-
-        Spacer(Modifier.height(8.dp))
 
         SectionTitle(stringResource(R.string.show_brightness_view))
 
@@ -440,16 +430,11 @@ private fun GlobalMenuTab(
             )
         }
 
-        Spacer(Modifier.height(8.dp))
-
-        var borderEnabled by remember {
-            mutableStateOf(preferences.readMenuBorderWidth > 0)
-        }
+        val borderEnabled = preferences.readMenuBorderWidth > 0
         TinySwitchSettingItem(
             title = stringResource(R.string.read_menu_border),
             checked = borderEnabled,
             onCheckedChange = {
-                borderEnabled = it
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.BorderWidth(if (it) 1 else 0)))
             },
         )
@@ -485,8 +470,6 @@ private fun GlobalMenuTab(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-
         TinySliderSettingItem(
             title = stringResource(R.string.read_menu_blur_radius),
             value = preferences.readMenuBlurRadius.toFloat(),
@@ -506,16 +489,37 @@ private fun GlobalMenuTab(
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuBlurAlpha(it.toInt())))
             },
         )
-        TinyClickableSettingItem(
+        TinyClearColorModeSettingItem(
+            title = stringResource(R.string.read_menu_text_color),
+            description = stringResource(R.string.read_menu_text_color_summary),
+            dayColor = preferences.readMenuTextColor,
+            nightColor = preferences.readMenuTextColorNight,
+            onClearColor = { isNight ->
+                onIntent(
+                    ReadBookIntent.UpdateConfig(
+                        if (isNight) ConfigUpdate.MenuTextColorNight(0)
+                        else ConfigUpdate.MenuTextColor(0)
+                    )
+                )
+            },
+            onClickColor = { isNight ->
+                if (isNight) {
+                    onShowColorPicker(COLOR_MENU_TEXT_NIGHT, preferences.readMenuTextColorNight)
+                } else {
+                    onShowColorPicker(COLOR_MENU_TEXT, preferences.readMenuTextColor)
+                }
+            },
+        )
+        TinyColorModeSettingItem(
             title = stringResource(R.string.read_menu_blur_color),
-            onClick = {
-                onShowColorPicker(COLOR_BLUR_TINT, preferences.readMenuBlurColor)
-            },
-            onLongClick = {
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuBlurColor(0)))
-            },
-            trailingContent = {
-                TinyColorSwatch(color = preferences.readMenuBlurColor)
+            dayColor = preferences.readMenuBlurColor,
+            nightColor = preferences.readMenuBlurColorNight,
+            onClickColor = { isNight ->
+                if (isNight) {
+                    onShowColorPicker(COLOR_BLUR_TINT_NIGHT, preferences.readMenuBlurColorNight)
+                } else {
+                    onShowColorPicker(COLOR_BLUR_TINT, preferences.readMenuBlurColor)
+                }
             },
         )
     }
@@ -531,12 +535,6 @@ private fun BottomBarTab(
     onShowIconSheet: () -> Unit,
     onShowColorPicker: (Int, Int) -> Unit,
 ) {
-    var readSliderMode by remember { mutableStateOf(preferences.readSliderMode) }
-    var showIconText by remember { mutableStateOf(preferences.readMenuIconShowText) }
-    var iconStyle by remember { mutableIntStateOf(preferences.readMenuIconStyle) }
-    var iconsPerRow by remember { mutableIntStateOf(preferences.readMenuIconItemsPerRow) }
-    var iconRowCount by remember { mutableIntStateOf(preferences.readMenuIconRowCount) }
-    var bottomCornerRadius by remember { mutableIntStateOf(preferences.readMenuBottomCornerRadius) }
     val floatingBottomBar = preferences.readMenuFloatingBottomBar
     val bottomBarBlurMode = if (
         !floatingBottomBar &&
@@ -558,11 +556,10 @@ private fun BottomBarTab(
 
         TinyDropdownSettingItem(
             title = stringResource(R.string.read_slider_mode),
-            selectedValue = readSliderMode,
+            selectedValue = preferences.readSliderMode,
             displayEntries = readSliderModeEntries,
             entryValues = readSliderModeValues,
             onValueChange = {
-                readSliderMode = it
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.ReadSliderMode(it)))
             },
         )
@@ -571,15 +568,14 @@ private fun BottomBarTab(
 
         TinySwitchSettingItem(
             title = stringResource(R.string.read_menu_show_icon_text),
-            checked = showIconText,
+            checked = preferences.readMenuIconShowText,
             onCheckedChange = {
-                showIconText = it
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuIconShowText(it)))
             },
         )
         TinyDropdownSettingItem(
             title = stringResource(R.string.read_menu_icon_container_style),
-            selectedValue = iconStyle.toString(),
+            selectedValue = preferences.readMenuIconStyle.toString(),
             displayEntries = arrayOf(
                 stringResource(R.string.read_menu_icon_style_plain),
                 stringResource(R.string.read_menu_icon_style_tonal),
@@ -587,28 +583,33 @@ private fun BottomBarTab(
             ),
             entryValues = arrayOf("0", "1", "2"),
             onValueChange = {
-                iconStyle = it.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuIconStyle(iconStyle)))
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuIconStyle(it.toInt())))
             },
         )
         TinySliderSettingItem(
             title = stringResource(R.string.read_menu_icons_per_row),
-            value = iconsPerRow.toFloat(),
+            value = preferences.readMenuIconItemsPerRow.toFloat(),
             valueRange = 2f..8f,
             steps = 5,
             onValueChange = {
-                iconsPerRow = it.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuIconItemsPerRow(iconsPerRow)))
+                onIntent(
+                    ReadBookIntent.UpdateConfig(
+                        ConfigUpdate.MenuIconItemsPerRow(it.toInt())
+                    )
+                )
             },
         )
         TinySliderSettingItem(
             title = stringResource(R.string.read_menu_icon_row_count),
-            value = iconRowCount.toFloat(),
+            value = preferences.readMenuIconRowCount.toFloat(),
             valueRange = 1f..2f,
             steps = 0,
             onValueChange = {
-                iconRowCount = it.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuIconRowCount(iconRowCount)))
+                onIntent(
+                    ReadBookIntent.UpdateConfig(
+                        ConfigUpdate.MenuIconRowCount(it.toInt())
+                    )
+                )
             },
         )
         TinyClickableSettingItem(
@@ -625,12 +626,15 @@ private fun BottomBarTab(
 
         TinySliderSettingItem(
             title = stringResource(R.string.read_menu_bottom_corner_radius),
-            value = bottomCornerRadius.toFloat(),
+            value = preferences.readMenuBottomCornerRadius.toFloat(),
             valueRange = 0f..32f,
             steps = 31,
             onValueChange = {
-                bottomCornerRadius = it.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.MenuBottomCornerRadius(bottomCornerRadius)))
+                onIntent(
+                    ReadBookIntent.UpdateConfig(
+                        ConfigUpdate.MenuBottomCornerRadius(it.toInt())
+                    )
+                )
             },
         )
         TinySwitchSettingItem(
@@ -653,7 +657,7 @@ private fun BottomBarTab(
                 )
             },
         )
-        AnimatedVisibility(visible = !floatingBottomBar && bottomBarBlurMode == ReadMenuBlurMode.Haze) {
+        AnimatedVisibility(visible = !floatingBottomBar) {
             TinyDropdownSettingItem(
                 title = stringResource(R.string.read_menu_bar_blur_style),
                 selectedValue = preferences.readMenuBottomBarBlurStyle.toString(),
@@ -748,7 +752,20 @@ private fun TopBarTab(
                 onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.TitleBarIconConfig))
             },
         )
-        Spacer(Modifier.height(8.dp))
+        TinyDropdownSettingItem(
+            title = stringResource(R.string.read_menu_icon_container_style),
+            selectedValue = preferences.titleBarIconStyle.toString(),
+            displayEntries = arrayOf(
+                stringResource(R.string.read_menu_icon_style_plain),
+                stringResource(R.string.read_menu_icon_style_tonal),
+                stringResource(R.string.read_menu_icon_style_outlined),
+            ),
+            entryValues = arrayOf("0", "1", "2"),
+            onValueChange = {
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleBarIconStyle(it.toInt())))
+            },
+        )
+
         TinySwitchSettingItem(
             title = stringResource(R.string.read_menu_bar_blur),
             checked = topBarBlurEnabled,
@@ -763,30 +780,28 @@ private fun TopBarTab(
                 )
             },
         )
-        AnimatedVisibility(visible = topBarBlurEnabled) {
-            TinyDropdownSettingItem(
-                title = stringResource(R.string.read_menu_bar_blur_style),
-                selectedValue = preferences.readMenuTopBarBlurStyle.toString(),
-                displayEntries = arrayOf(
-                    stringResource(R.string.read_menu_blur_style_solid),
-                    stringResource(R.string.read_menu_blur_style_progressive),
-                ),
-                entryValues = arrayOf(
-                    ReadMenuBlurStyle.Solid.toString(),
-                    ReadMenuBlurStyle.Progressive.toString(),
-                ),
-                onValueChange = {
-                    onIntent(
-                        ReadBookIntent.UpdateConfig(
-                            ConfigUpdate.MenuTopBarBlurSelection(
-                                mode = ReadMenuBlurMode.Haze,
-                                style = it.toInt(),
-                            )
+        TinyDropdownSettingItem(
+            title = stringResource(R.string.read_menu_bar_blur_style),
+            selectedValue = preferences.readMenuTopBarBlurStyle.toString(),
+            displayEntries = arrayOf(
+                stringResource(R.string.read_menu_blur_style_solid),
+                stringResource(R.string.read_menu_blur_style_progressive),
+            ),
+            entryValues = arrayOf(
+                ReadMenuBlurStyle.Solid.toString(),
+                ReadMenuBlurStyle.Progressive.toString(),
+            ),
+            onValueChange = {
+                onIntent(
+                    ReadBookIntent.UpdateConfig(
+                        ConfigUpdate.MenuTopBarBlurSelection(
+                            mode = preferences.readMenuTopBarBlurMode,
+                            style = it.toInt(),
                         )
                     )
-                },
-            )
-        }
+                )
+            },
+        )
         AnimatedVisibility(visible = topBarBlurEnabled) {
             TinySwitchSettingItem(
                 title = stringResource(R.string.read_menu_bar_liquid_glass_buttons),
@@ -850,6 +865,16 @@ internal fun readMenuButtonInfos(context: Context): List<ReadMenuButtonInfo> = l
     ReadMenuButtonInfo("replace", Icons.Default.FindReplace, context.getString(R.string.replace_purify)),
     ReadMenuButtonInfo("replace_badge", Icons.Default.AutoAwesome, context.getString(R.string.replace_purify_badge)),
     ReadMenuButtonInfo("translate", Icons.Default.Translate, context.getString(R.string.translate)),
+    ReadMenuButtonInfo(
+        "ai_summary",
+        Icons.Default.AutoAwesome,
+        context.getString(R.string.ai_chapter_summary)
+    ),
+    ReadMenuButtonInfo(
+        "ai_rewrite",
+        Icons.Default.Edit,
+        context.getString(R.string.ai_text_rewrite)
+    ),
 )
 
 // ========== Color Swatch ==========

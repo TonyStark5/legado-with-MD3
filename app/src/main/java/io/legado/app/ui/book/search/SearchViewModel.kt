@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.local.preferences.LocalPreferencesKeys
-import io.legado.app.data.local.preferences.LocalPreferencesRepository
+import io.legado.app.data.repository.SettingsRepository
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.domain.model.BookSearchScope
 import io.legado.app.domain.model.MatchMode
@@ -23,6 +23,9 @@ import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -37,8 +40,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -48,10 +49,10 @@ class SearchViewModel(
     private val searchBooksUseCase: SearchBooksUseCase,
     private val exploreBooksUseCase: ExploreBooksUseCase,
     private val addToBookshelfUseCase: AddToBookshelfUseCase,
-    private val localPreferencesRepository: LocalPreferencesRepository,
+    private val localPreferencesRepository: SettingsRepository,
 ) : ViewModel() {
 
-    val searchLayoutMode = localPreferencesRepository
+    private val searchLayoutMode = localPreferencesRepository
         .getPreference(LocalPreferencesKeys.SEARCH_LAYOUT_MODE, 0)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -87,10 +88,15 @@ class SearchViewModel(
     private var persistedSearchScopeRaw = ""
     private var hasTemporaryScope = false
     private val searchScope = SearchScope("")
+    private val searchScopeReady = CompletableDeferred<Unit>()
     private val preferenceWriteScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val searchControl = BookSearchControl()
     private val searchResultBooks = LinkedHashMap<SearchResultKey, SearchBook>()
 
+    private var initializeJob: Job? = null
+    private var lastInitializedKey: String? = null
+    private var lastInitializedScopeRaw: String? = null
+    private var hasInitialized = false
     private var searchJob: Job? = null
     private var currentSearchPage = 1
     private var resultCountBeforeCurrentPage = 0
@@ -105,6 +111,9 @@ class SearchViewModel(
         observeQueryHistory()
         observeQueryBookshelfHints()
         observeMatchMode()
+        viewModelScope.launch {
+            searchLayoutMode.collect { mode -> _uiState.update { it.copy(layoutMode = mode) } }
+        }
     }
 
     fun onAddToShelf(book: SearchBook) {
@@ -154,6 +163,10 @@ class SearchViewModel(
                 )
             }
 
+            is SearchIntent.AddToShelf -> viewModelScope.launch {
+                addToBookshelfUseCase.execute(intent.book)
+            }
+
             is SearchIntent.OpenBookshelfBook -> {
                 emitEffect(
                     SearchEffect.OpenBookInfo(
@@ -188,6 +201,16 @@ class SearchViewModel(
 
             is SearchIntent.SetSettingsSheetVisible -> {
                 _uiState.update { it.copy(showSettingsSheet = intent.visible) }
+            }
+
+            is SearchIntent.SetLayoutMode -> {
+                _uiState.update { it.copy(layoutMode = intent.mode) }
+                viewModelScope.launch {
+                    localPreferencesRepository.updatePreference(
+                        LocalPreferencesKeys.SEARCH_LAYOUT_MODE,
+                        intent.mode,
+                    )
+                }
             }
 
             is SearchIntent.ToggleSourceType -> {
@@ -323,6 +346,23 @@ class SearchViewModel(
     }
 
     private fun initialize(key: String?, scopeRaw: String?) {
+        initializeJob?.cancel()
+        initializeJob = viewModelScope.launch {
+            searchScopeReady.await()
+            initializeAfterScopeLoaded(key, scopeRaw)
+        }
+    }
+
+    private fun initializeAfterScopeLoaded(key: String?, scopeRaw: String?) {
+        val normalizedKey = key?.trim()
+        val normalizedScopeRaw = scopeRaw?.takeIf { it.isNotBlank() }
+        val isSameRequest = hasInitialized &&
+                lastInitializedKey == normalizedKey &&
+                lastInitializedScopeRaw == normalizedScopeRaw
+        lastInitializedKey = normalizedKey
+        lastInitializedScopeRaw = normalizedScopeRaw
+        hasInitialized = true
+
         val temporaryScope = scopeRaw?.takeIf { it.isNotBlank() }
         if (temporaryScope != null) {
             hasTemporaryScope = true
@@ -339,11 +379,11 @@ class SearchViewModel(
         // This happens when returning from BookInfo — the LaunchedEffect
         // re-fires but we must not wipe the existing results.
         val hasActiveSearch = _uiState.value.committedQuery.isNotEmpty()
-        if (hasActiveSearch) return
+        if (isSameRequest && hasActiveSearch) return
 
         clearSearchResults()
 
-        val initKey = key?.trim().orEmpty()
+        val initKey = normalizedKey.orEmpty()
         if (initKey.isNotEmpty()) {
             updateQuery(initKey, showSuggestions = false)
             submitSearch(initKey)
@@ -519,6 +559,7 @@ class SearchViewModel(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
+                wasSearching = false
                 _uiState.update { it.copy(isSearching = false) }
                 exception.localizedMessage
                     ?.takeIf { it.isNotBlank() }
@@ -548,6 +589,7 @@ class SearchViewModel(
             }
 
             is SearchRunEvent.Finished -> {
+                wasSearching = false
                 _uiState.update { state ->
                     val emptyAction = if (searchResultBooks.isEmpty() && event.isEmpty && !searchScope.isAll()) {
                         SearchEmptyScopeAction(
@@ -732,6 +774,7 @@ class SearchViewModel(
                         searchScope.update(scopeRaw, postValue = false)
                         syncScopeState()
                     }
+                    searchScopeReady.complete(Unit)
                 }
         }
     }
@@ -823,11 +866,24 @@ class SearchViewModel(
     }
 
     private fun mergeSearchResults(books: List<SearchBook>) {
+        val bookUrlIndex = HashMap<String, SearchResultKey>()
+        searchResultBooks.forEach { (key, book) ->
+            bookUrlIndex[book.bookUrl] = key
+        }
         books.forEach { book ->
             val key = SearchResultKey(book.name, book.author)
+            val existingUrlKey = bookUrlIndex[book.bookUrl]
+            if (existingUrlKey != null && existingUrlKey != key) {
+                val existingBook = searchResultBooks[existingUrlKey]
+                if (existingBook != null) {
+                    existingBook.addOrigin(book.origin)
+                    return@forEach
+                }
+            }
             val currentBook = searchResultBooks[key]
             if (currentBook == null) {
                 searchResultBooks[key] = book
+                bookUrlIndex[book.bookUrl] = key
             } else {
                 book.origins.forEach { origin -> currentBook.addOrigin(origin) }
             }

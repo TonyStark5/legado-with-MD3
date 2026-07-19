@@ -66,6 +66,7 @@ fun DictRuleRouteScreen(
         state = uiState,
         importState = importState,
         events = viewModel.events,
+        effects = viewModel.effects,
         onIntent = viewModel::onIntent,
         onPasteRule = viewModel::pasteRule,
         onBackClick = onBackClick,
@@ -78,6 +79,7 @@ fun DictRuleScreen(
     state: DictRuleUiState,
     importState: BaseImportUiState<DictRule>,
     events: Flow<BaseRuleEvent>,
+    effects: Flow<DictRuleEffect>,
     onIntent: (DictRuleIntent) -> Unit,
     onPasteRule: () -> DictRule?,
     onBackClick: () -> Unit,
@@ -129,6 +131,14 @@ fun DictRuleScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    LaunchedEffect(effects) {
+        effects.collect { effect ->
+            when (effect) {
+                is DictRuleEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.message)
             }
         }
     }
@@ -194,7 +204,7 @@ fun DictRuleScreen(
     )
 
     BatchImportDialog(
-        title = "导入词典规则",
+        title = stringResource(R.string.import_dict_rule),
         importState = importState,
         onDismissRequest = { onIntent(DictRuleIntent.CancelImport) },
         onToggleItem = { onIntent(DictRuleIntent.ToggleImportSelection(it)) },
@@ -237,7 +247,13 @@ fun DictRuleScreen(
             editingRule = null
         },
         onSave = { updatedRule ->
-            onIntent(DictRuleIntent.SaveRule(updatedRule, isNew = editingRule == null))
+            onIntent(
+                DictRuleIntent.SaveRule(
+                    rule = updatedRule,
+                    isNew = editingRule == null,
+                    originalName = editingRule?.name,
+                )
+            )
             showEditSheet = false
             editingRule = null
         },
@@ -264,14 +280,14 @@ fun DictRuleScreen(
     )
 
     RuleListScaffold(
-        title = "字典规则",
+        title = stringResource(R.string.dict_rule),
         state = state,
         onBackClick = { onBackClick() },
         onSearchToggle = { active ->
             onIntent(DictRuleIntent.SetSearchMode(active))
         },
         onSearchQueryChange = { onIntent(DictRuleIntent.UpdateSearchQuery(it)) },
-        searchPlaceholder = stringResource(R.string.replace_purify_search),
+        searchPlaceholder = stringResource(R.string.search_dict_rule),
         onClearSelection = { onIntent(DictRuleIntent.ClearSelection) },
         onSelectAll = { onIntent(DictRuleIntent.SelectAll) },
         onSelectInvert = {
@@ -319,9 +335,21 @@ fun DictRuleScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(rules, key = { it.id }) { item ->
+                    val enabledState = stringResource(
+                        if (item.isEnabled) R.string.enabled else R.string.disabled
+                    )
+                    val itemDescription = listOfNotNull(
+                        item.id,
+                        item.urlRule.takeIf { it.isNotBlank() },
+                        enabledState,
+                        stringResource(R.string.a11y_long_press_reorder)
+                    ).joinToString()
                     ReorderableSelectionItem(
                         state = reorderableState,
                         key = item.id,
+                        reorderIndex = rules.indexOf(item),
+                        reorderItemCount = rules.size,
+                        onMoveItem = { from, to -> onIntent(DictRuleIntent.MoveItem(from, to)) },
                         title = item.id,
                         isEnabled = item.isEnabled,
                         isSelected = selectedIds.contains(item.id),
@@ -330,11 +358,21 @@ fun DictRuleScreen(
                         onEnabledChange = { enabled ->
                             onIntent(DictRuleIntent.SetRuleEnabled(item.rule, enabled))
                         },
+                        contentDescription = itemDescription,
+                        enableSwitchContentDescription = stringResource(
+                            R.string.a11y_rule_enabled_switch,
+                            item.id
+                        ),
+                        editContentDescription = stringResource(R.string.a11y_edit_named, item.id),
                         onClickEdit = { editingRule = item.rule; showEditSheet = true },
                         trailingAction = {
                             SmallPlainButton(
                                 onClick = { showDeleteRuleDialog = item.rule },
-                                icon = AppIcons.Delete
+                                icon = AppIcons.Delete,
+                                contentDescription = stringResource(
+                                    R.string.a11y_delete_named,
+                                    item.id
+                                )
                             )
                         }
                     )

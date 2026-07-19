@@ -323,7 +323,8 @@ object ChapterProvider {
             bookContent.sameTitleRemoved,
             bookChapter.isVip,
             bookChapter.isPay,
-            bookContent.effectiveReplaceRules
+            bookContent.effectiveReplaceRules,
+            bookContent.effectiveContentProcesses,
         )
     }
     */
@@ -344,7 +345,8 @@ object ChapterProvider {
             bookContent.sameTitleRemoved,
             bookChapter.isVip,
             bookChapter.isPay,
-            bookContent.effectiveReplaceRules
+            bookContent.effectiveReplaceRules,
+            bookContent.effectiveContentProcesses,
         ).apply {
             createLayout(scope, book, bookContent)
         }
@@ -1057,6 +1059,10 @@ object ChapterProvider {
      * 更新View尺寸
      */
     fun upViewSize(width: Int, height: Int) {
+        upViewSizeRunnable?.let {
+            handler.removeCallbacks(it)
+            upViewSizeRunnable = null
+        }
         if (width <= 0 || height <= 0) {
             return
         }
@@ -1069,9 +1075,6 @@ object ChapterProvider {
             } else {
                 notifyViewSizeChange(width, height)
             }
-        } else if (upViewSizeRunnable != null) {
-            handler.removeCallbacks(upViewSizeRunnable!!)
-            upViewSizeRunnable = null
         }
     }
 
@@ -1079,7 +1082,7 @@ object ChapterProvider {
         viewWidth = width
         viewHeight = height
         upLayout()
-        postEvent(EventBus.UP_CONFIG, arrayListOf(5))
+        postEvent(EventBus.UP_CONFIG, arrayListOf(12))
     }
 
     /**

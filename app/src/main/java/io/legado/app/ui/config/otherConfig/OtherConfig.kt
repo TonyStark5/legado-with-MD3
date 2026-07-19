@@ -6,15 +6,19 @@ import io.legado.app.ui.config.prefDelegate
 
 object OtherConfig {
 
-    var language by prefDelegate(
+    val language by prefDelegate(
         PreferKey.language,
-        "auto",
-        sync = true
+        "auto"
     )
 
     var updateToVariant by prefDelegate(
         PreferKey.updateToVariant,
         "official_version"
+    )
+
+    var autoCheckUpdateOnStart by prefDelegate(
+        PreferKey.autoCheckUpdateOnStart,
+        false
     )
 
     var webServiceAutoStart by prefDelegate(

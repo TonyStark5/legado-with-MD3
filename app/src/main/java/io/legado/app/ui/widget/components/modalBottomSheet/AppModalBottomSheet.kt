@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -14,8 +15,11 @@ import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.SheetValue.Expanded
+import androidx.compose.material3.SheetValue.Hidden
 import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -47,6 +51,8 @@ fun AppModalBottomSheet(
     title: String? = null,
     startAction: @Composable (() -> Unit)? = null,
     endAction: @Composable (() -> Unit)? = null,
+    animateContentSize: Boolean = true,
+    contentWindowInsets: @Composable () -> WindowInsets = { BottomSheetDefaults.modalWindowInsets },
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colorScheme = LocalLegadoThemeColors.current.colorScheme
@@ -90,7 +96,9 @@ fun AppModalBottomSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 24.dp)
-                            .animateContentSize(),
+                            .let { contentModifier ->
+                                if (animateContentSize) contentModifier.animateContentSize() else contentModifier
+                            },
                         content = content
                     )
                 }
@@ -98,7 +106,10 @@ fun AppModalBottomSheet(
         }
     } else {
         if (show) {
-            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            val sheetState = rememberBottomSheetState(
+                initialValue = Expanded,
+                enabledValues = setOf(Hidden, Expanded)
+            )
             val density = LocalDensity.current
             val maxHeight = with(density) {
                 LocalWindowInfo.current.containerSize.height.toDp() * 0.8f
@@ -115,14 +126,17 @@ fun AppModalBottomSheet(
                     sheetState = sheetState,
                     containerColor = sheetContainerColor,
                     contentColor = sheetContentColor,
-                    dragHandle = { BottomSheetDefaults.DragHandle(color = sheetDragHandleColor) }
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = sheetDragHandleColor) },
+                    contentWindowInsets = contentWindowInsets
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 0.dp)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
                             .heightIn(max = maxHeight)
-                            .animateContentSize()
+                            .let { contentModifier ->
+                                if (animateContentSize) contentModifier.animateContentSize() else contentModifier
+                            }
                             .then(modifier)
                     ) {
                         val hasHeader =
@@ -173,6 +187,7 @@ fun AppModalBottomSheet(
  * 专为 nullable 数据设计的 AppModalBottomSheet 重载。
  * 当 [data] 不为 null 时显示弹窗；当 [data] 变为 null 时，自动缓存最后一次数据并播放退出动画。
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun <T> AppModalBottomSheet(
     data: T?,
@@ -181,6 +196,8 @@ fun <T> AppModalBottomSheet(
     title: String? = null,
     startAction: @Composable (() -> Unit)? = null,
     endAction: @Composable (() -> Unit)? = null,
+    animateContentSize: Boolean = true,
+    contentWindowInsets: @Composable () -> WindowInsets = { BottomSheetDefaults.modalWindowInsets },
     content: @Composable ColumnScope.(T) -> Unit
 ) {
     var cachedData by remember { mutableStateOf(data) }
@@ -197,6 +214,8 @@ fun <T> AppModalBottomSheet(
         title = title,
         startAction = startAction,
         endAction = endAction,
+        animateContentSize = animateContentSize,
+        contentWindowInsets = contentWindowInsets,
         content = {
             if (currentData != null) {
                 content(currentData)

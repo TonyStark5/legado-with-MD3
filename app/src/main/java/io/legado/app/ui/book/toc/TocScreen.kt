@@ -3,6 +3,7 @@ package io.legado.app.ui.book.toc
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -72,6 +73,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -79,6 +86,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.Bookmark
 import io.legado.app.help.book.isLocal
 import io.legado.app.ui.book.toc.rule.TxtTocRuleActivity
@@ -106,11 +114,13 @@ import io.legado.app.ui.widget.components.list.TopFloatingStickyItem
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.progressIndicator.AppContainedLoadingIndicator
+import io.legado.app.ui.widget.components.progressIndicator.AppLinearProgressIndicator
 import io.legado.app.ui.widget.components.tabRow.AppTabRow
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.topbar.DynamicTopAppBar
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import java.text.SimpleDateFormat
@@ -119,8 +129,38 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun TocScreen(
+fun TocRouteScreen(
     viewModel: TocViewModel = koinViewModel(),
+    onBackClick: () -> Unit,
+    onChapterClick: (Int) -> Unit,
+    onOpenReplaceRule: (ReplaceEditRoute?) -> Unit,
+    onBookmarkClick: (chapterIndex: Int, chapterPos: Int) -> Unit,
+) {
+    val state by viewModel.screenState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collectLatest { effect ->
+            when (effect) {
+                is TocEffect.ShowMessage ->
+                    Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    TocScreen(
+        uiState = state,
+        onIntent = viewModel::onIntent,
+        onBackClick = onBackClick,
+        onChapterClick = onChapterClick,
+        onOpenReplaceRule = onOpenReplaceRule,
+        onBookmarkClick = onBookmarkClick,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun TocScreen(
+    uiState: TocUiState,
+    onIntent: (TocIntent) -> Unit,
     onBackClick: () -> Unit,
     onChapterClick: (Int) -> Unit,
     onOpenReplaceRule: (ReplaceEditRoute?) -> Unit,
@@ -129,8 +169,8 @@ fun TocScreen(
 
     val context = LocalContext.current
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
-    val book by viewModel.bookState.collectAsStateWithLifecycle()
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val book = uiState.book
+    val state = uiState.action
 
     val pagerState = rememberPagerState { 2 }
     val scope = rememberCoroutineScope()
@@ -200,7 +240,7 @@ fun TocScreen(
     }
 
     val isOnTocPage = pagerState.currentPage == 0
-    val collapsedVolumes by viewModel.collapsedVolumes.collectAsStateWithLifecycle()
+    val collapsedVolumes = uiState.collapsedVolumes
     val stickyVolume by remember(state.items, collapsedVolumes, isOnTocPage, listState) {
         derivedStateOf {
             if (!isOnTocPage || state.items.isEmpty()) return@derivedStateOf null
@@ -244,7 +284,7 @@ fun TocScreen(
                 scope.launch { listState.animateScrollToItem(state.items.size) }
             },
             FabMenuItem(Icons.Default.DownloadForOffline, downloadAllText) {
-                viewModel.downloadAll()
+                onIntent(TocIntent.DownloadAll)
             }
         )
     }
@@ -259,17 +299,17 @@ fun TocScreen(
             ActionItem(
                 text = invertSelectionText,
                 icon = Icons.Default.Refresh,
-                onClick = { viewModel.invertSelection() }
+                onClick = { onIntent(TocIntent.InvertSelection) }
             ),
             ActionItem(
                 text = selectFollowingText,
                 icon = Icons.Default.ExpandMore,
-                onClick = { viewModel.selectFromLast() }
+                onClick = { onIntent(TocIntent.SelectFromLast) }
             ),
             ActionItem(
                 text = addBookmarkText,
                 icon = Icons.Default.BookmarkAdd,
-                onClick = { viewModel.addBookmarksForSelected() }
+                onClick = { onIntent(TocIntent.AddBookmarksForSelected) }
             )
         )
     }
@@ -279,7 +319,7 @@ fun TocScreen(
     ) { uri: Uri? ->
         uri?.let {
             val isActuallyMd = it.toString().endsWith(".md", ignoreCase = true)
-            viewModel.exportCurrentBookBookmarks(it, isActuallyMd)
+            onIntent(TocIntent.ExportBookmarks(it, isActuallyMd))
         }
     }
 
@@ -288,7 +328,7 @@ fun TocScreen(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val newRegex = result.data?.getStringExtra("tocRegex")
-            viewModel.saveTocRegex(newRegex ?: "")
+            onIntent(TocIntent.SaveTocRegex(newRegex ?: ""))
         }
     }
 
@@ -341,7 +381,7 @@ fun TocScreen(
     }
 
     BackHandler(enabled = isSelectionMode) {
-        viewModel.clearSelection()
+        onIntent(TocIntent.ClearSelection)
     }
 
     AppScaffold(
@@ -353,10 +393,10 @@ fun TocScreen(
                 state = state,
                 scrollBehavior = scrollBehavior,
                 onBackClick = onBackClick,
-                onSearchToggle = { viewModel.setSearchMode(it) },
-                onSearchQueryChange = { viewModel.setSearchKey(it) },
+                onSearchToggle = { onIntent(TocIntent.SetSearchMode(it)) },
+                onSearchQueryChange = { onIntent(TocIntent.SetSearchQuery(it)) },
                 searchPlaceholder = stringResource(R.string.search_chapters),
-                onClearSelection = { viewModel.clearSelection() },
+                onClearSelection = { onIntent(TocIntent.ClearSelection) },
                 dropDownMenuContent = { dismiss ->
                     when (pagerState.currentPage) {
                         0 -> {
@@ -365,7 +405,7 @@ fun TocScreen(
                                 isSelected = useReplace,
                                 onClick = {
                                     dismiss()
-                                    viewModel.toggleUseReplace()
+                                    onIntent(TocIntent.ToggleUseReplace)
                                 }
                             )
                             RoundDropdownMenuItem(
@@ -373,14 +413,14 @@ fun TocScreen(
                                 isSelected = showWordCount,
                                 onClick = {
                                     dismiss()
-                                    viewModel.toggleShowWordCount()
+                                    onIntent(TocIntent.ToggleShowWordCount)
                                 }
                             )
                             RoundDropdownMenuItem(
                                 text = stringResource(R.string.reverse_toc),
                                 onClick = {
                                     dismiss()
-                                    viewModel.reverseToc()
+                                    onIntent(TocIntent.ReverseToc)
                                 }
                             )
                             PillDivider()
@@ -424,9 +464,9 @@ fun TocScreen(
                                 )
                                 RoundDropdownMenuItem(
                                     text = stringResource(R.string.split_long_chapters),
-                                    isSelected = viewModel.isSplitLongChapter,
+                                    isSelected = uiState.isSplitLongChapter,
                                     onClick = {
-                                        viewModel.toggleSplitLongChapter()
+                                        onIntent(TocIntent.ToggleSplitLongChapter)
                                         dismiss()
                                     }
                                 )
@@ -500,13 +540,13 @@ fun TocScreen(
                                     RoundDropdownMenuItem(
                                         text = stringResource(R.string.expand_volume),
                                         onClick = {
-                                            viewModel.expandAllVolumes(); showVolumeMenu = false
+                                            onIntent(TocIntent.ExpandAllVolumes); showVolumeMenu = false
                                         }
                                     )
                                     RoundDropdownMenuItem(
                                         text = stringResource(R.string.coll_volume),
                                         onClick = {
-                                            viewModel.collapseAllVolumes(); showVolumeMenu = false
+                                            onIntent(TocIntent.CollapseAllVolumes); showVolumeMenu = false
                                         }
                                     )
 
@@ -563,15 +603,15 @@ fun TocScreen(
                 exit = slideOutVertically { it } + fadeOut()
             ) {
                 SelectionBottomBar(
-                    onSelectAll = { viewModel.selectAll() },
-                    onSelectInvert = { viewModel.invertSelection() },
+                    onSelectAll = { onIntent(TocIntent.SelectAll) },
+                    onSelectInvert = { onIntent(TocIntent.InvertSelection) },
                     primaryAction = ActionItem(
                         text = stringResource(
                             R.string.download_selected_count,
                             state.selectedIds.size
                         ),
                         icon = Icons.Default.Download,
-                        onClick = { viewModel.downloadSelected() }
+                        onClick = { onIntent(TocIntent.DownloadSelected) }
                     ),
                     secondaryActions = selectionSecondaryActions
                 )
@@ -580,7 +620,9 @@ fun TocScreen(
             HorizontalPager(state = pagerState) { page ->
                 when (page) {
                     0 -> ChapterListContent(
-                        viewModel = viewModel,
+                        state = state,
+                        collapsedVolumes = collapsedVolumes,
+                        onIntent = onIntent,
                         listState = listState,
                         onChapterClick = onChapterClick,
                         contentPadding = adaptiveContentPaddingOnlyVertical(
@@ -590,7 +632,8 @@ fun TocScreen(
                     )
 
                     1 -> BookmarkListContent(
-                        viewModel = viewModel,
+                        bookmarks = uiState.bookmarks,
+                        book = book,
                         onBookmarkLongClick = onBookmarkClick,
                         onBookmarkClick = { bookmark ->
                             editingBookmark = bookmark
@@ -601,6 +644,22 @@ fun TocScreen(
                         )
                     )
                 }
+            }
+
+            AnimatedVisibility(
+                visible = isOnTocPage && state.titleReplaceProgress != null,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = padding.calculateTopPadding())
+                    .fillMaxWidth()
+                    .zIndex(2f)
+            ) {
+                AppLinearProgressIndicator(
+                    progress = state.titleReplaceProgress ?: 0f,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clearAndSetSemantics { }
+                )
             }
 
             TopFloatingStickyItem(
@@ -637,11 +696,11 @@ fun TocScreen(
             bookmark = bookmarkForSheet,
             onDismiss = { editingBookmark = null },
             onSave = { updatedBookmark ->
-                viewModel.updateBookmark(updatedBookmark)
+                onIntent(TocIntent.UpdateBookmark(updatedBookmark))
                 editingBookmark = null
             },
             onDelete = { bookmarkToDelete ->
-                viewModel.deleteBookmark(bookmarkToDelete)
+                onIntent(TocIntent.DeleteBookmark(bookmarkToDelete))
                 editingBookmark = null
             }
         )
@@ -651,13 +710,13 @@ fun TocScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChapterListContent(
-    viewModel: TocViewModel,
+    state: TocActionState,
+    collapsedVolumes: Set<Int>,
+    onIntent: (TocIntent) -> Unit,
     listState: LazyListState,
     onChapterClick: (Int) -> Unit,
     contentPadding: PaddingValues
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val collapsedVolumes by viewModel.collapsedVolumes.collectAsStateWithLifecycle()
 
     FastScrollLazyColumn(
         state = listState,
@@ -674,7 +733,7 @@ fun ChapterListContent(
                         modifier = Modifier.animateItem(),
                         title = uiItem.title,
                         isCollapsed = collapsedVolumes.contains(uiItem.id),
-                        onToggle = { viewModel.toggleVolume(uiItem.id) }
+                        onToggle = { onIntent(TocIntent.ToggleVolume(uiItem.id)) }
                     )
                 }
 
@@ -689,15 +748,15 @@ fun ChapterListContent(
                         showWordCount = state.showWordCount,
                         onClick = {
                             if (state.selectedIds.isNotEmpty())
-                                viewModel.toggleSelection(uiItem.id)
+                                onIntent(TocIntent.ToggleSelection(uiItem.id))
                             else
                                 onChapterClick(uiItem.id)
                         },
                         onLongClick = {
-                            viewModel.toggleSelection(uiItem.id)
+                            onIntent(TocIntent.ToggleSelection(uiItem.id))
                         },
                         onDownloadClick = {
-                            viewModel.downloadChapter(uiItem.id)
+                            onIntent(TocIntent.DownloadChapter(uiItem.id))
                         }
                     )
                 }
@@ -739,10 +798,49 @@ fun ChapterItem(
             else -> LegadoTheme.colorScheme.onSurfaceVariant
         }, label = "BgColor"
     )
+    val currentReadingDescription = stringResource(R.string.a11y_current_reading)
+    val lockedDescription = stringResource(R.string.a11y_vip_locked)
+    val downloadedDescription = stringResource(R.string.a11y_downloaded)
+    val downloadingDescription = stringResource(R.string.a11y_downloading)
+    val downloadFailedDescription = stringResource(R.string.a11y_download_failed)
+    val notDownloadedDescription = stringResource(R.string.a11y_not_downloaded)
+    val wordCountDescription = item.wordCount?.let {
+        stringResource(R.string.a11y_word_count, it)
+    }
+    val downloadStateDescription = when (item.downloadState) {
+        DownloadState.SUCCESS -> downloadedDescription
+        DownloadState.DOWNLOADING -> downloadingDescription
+        DownloadState.ERROR -> downloadFailedDescription
+        DownloadState.NONE -> notDownloadedDescription
+        DownloadState.LOCAL -> null
+    }
+    val chapterContentDescription = buildList {
+        add(item.title)
+        item.tag?.takeIf { it.isNotBlank() }?.let(::add)
+        if (item.isDur) add(currentReadingDescription)
+        if (item.isVip && !item.isPay) add(lockedDescription)
+        if (showWordCount) wordCountDescription?.let(::add)
+        downloadStateDescription?.let(::add)
+    }.joinToString(", ")
+    val canDownload = item.downloadState == DownloadState.NONE ||
+            item.downloadState == DownloadState.ERROR
+    val downloadActionDescription = stringResource(
+        if (item.downloadState == DownloadState.ERROR) {
+            R.string.a11y_retry_chapter
+        } else {
+            R.string.download_chapter
+        },
+        item.title
+    )
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .semantics {
+                role = Role.Button
+                contentDescription = chapterContentDescription
+                selected = item.isSelected
+            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -802,12 +900,18 @@ fun ChapterItem(
                         .padding(start = 8.dp)
                         .wrapContentSize()
                         .clip(MaterialTheme.shapes.medium)
-                        .combinedClickable(
-                            enabled = item.downloadState != DownloadState.LOCAL,
-                            onClick = {
-                                if (item.downloadState == DownloadState.NONE) {
-                                    onDownloadClick()
-                                }
+                        .then(
+                            if (canDownload) {
+                                Modifier
+                                    .combinedClickable(
+                                        role = Role.Button,
+                                        onClick = onDownloadClick
+                                    )
+                                    .semantics {
+                                        contentDescription = downloadActionDescription
+                                    }
+                            } else {
+                                Modifier.clearAndSetSemantics { }
                             }
                         ),
                     contentAlignment = Alignment.Center
@@ -827,13 +931,12 @@ fun ChapterItem(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookmarkListContent(
-    viewModel: TocViewModel,
+    bookmarks: List<TocBookmarkItemUi>,
+    book: Book?,
     onBookmarkLongClick: (chapterIndex: Int, chapterPos: Int) -> Unit,
     onBookmarkClick: (Bookmark) -> Unit,
     contentPadding: PaddingValues
 ) {
-    val bookmarks by viewModel.bookmarkUiList.collectAsStateWithLifecycle()
-    val book by viewModel.bookState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
     LaunchedEffect(bookmarks, book?.durChapterIndex) {

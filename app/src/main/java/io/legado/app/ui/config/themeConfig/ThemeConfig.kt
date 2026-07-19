@@ -3,7 +3,6 @@ package io.legado.app.ui.config.themeConfig
 import android.os.Handler
 import android.os.Looper
 import androidx.appcompat.app.AppCompatDelegate
-import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.ui.config.prefDelegate
 import io.legado.app.utils.GSON
@@ -14,7 +13,30 @@ data class TagColorPair(
     val bgColor: Int = 0
 )
 
+data class CustomThemeColors(
+    val primary: Int,
+    val secondary: Int,
+    val primaryText: Int,
+    val secondaryText: Int,
+    val background: Int,
+    val labelContainer: Int,
+) {
+    val hasCustomColor: Boolean
+        get() = primary != 0 ||
+                secondary != 0 ||
+                primaryText != 0 ||
+                secondaryText != 0 ||
+                background != 0 ||
+                labelContainer != 0
+}
+
 object ThemeConfig {
+
+    private const val CUSTOM_APP_THEME = "12"
+
+    const val BOOK_INFO_BACKGROUND_BLUR_OFF = "off"
+    const val BOOK_INFO_BACKGROUND_BLUR_ON = "on"
+    const val BOOK_INFO_BACKGROUND_COVER_HIDDEN = "off_for_default"
 
     var containerOpacity by prefDelegate(PreferKey.containerOpacity, 100)
 
@@ -38,14 +60,29 @@ object ThemeConfig {
 
     var useFlexibleTopAppBar by prefDelegate(PreferKey.useFlexibleTopAppBar, true)
 
+    var bookInfoFollowCoverColor by prefDelegate(PreferKey.bookInfoFollowCoverColor, true)
+
+    var bookInfoBackgroundBlur by prefDelegate(
+        PreferKey.bookInfoBackgroundBlur,
+        BOOK_INFO_BACKGROUND_BLUR_ON
+    )
+
+    var bookInfoNetworkCoverBackground by prefDelegate(
+        PreferKey.bookInfoNetworkCoverBackground,
+        bookInfoBackgroundBlur
+    )
+
+    var bookInfoDefaultCoverBackground by prefDelegate(
+        PreferKey.bookInfoDefaultCoverBackground,
+        bookInfoBackgroundBlur
+    )
+
     var paletteStyle by prefDelegate(PreferKey.paletteStyle, "tonalSpot")
 
     //m3 or miuix
     var composeEngine by prefDelegate(PreferKey.composeEngine, "material")
 
-    var useMiuixMonet by prefDelegate(PreferKey.useMiuixMonet, false) {
-        postEvent(EventBus.RECREATE, "")
-    }
+    var useMiuixMonet by prefDelegate(PreferKey.useMiuixMonet, false)
 
     var materialVersion by prefDelegate(PreferKey.materialVersion, "material3")
 
@@ -65,29 +102,24 @@ object ThemeConfig {
 
     var isPureBlack by prefDelegate(PreferKey.pureBlack, false)
 
-    var bgImageLight by prefDelegate<String?>(PreferKey.bgImage, null) {
-        postEvent(EventBus.RECREATE, false)
-    }
+    var bgImageLight by prefDelegate<String?>(PreferKey.bgImage, null)
 
-    var bgImageDark by prefDelegate<String?>(PreferKey.bgImageN, null) {
-        postEvent(EventBus.RECREATE, false)
-    }
+    var bgImageDark by prefDelegate<String?>(PreferKey.bgImageN, null)
 
     var bgImageBlurring by prefDelegate(PreferKey.bgImageBlurring, 0)
 
     var bgImageNBlurring by prefDelegate(PreferKey.bgImageNBlurring, 0)
 
+    // Compose 消费点（BackHandler enabled / predictivePopTransitionSpec）直接响应状态。
+    // 读的是 prefDelegate 的 Compose state，切换即时生效；View 系 Activity 在下次
+    // onCreate 时按新值注册 OnBackInvokedCallback（与旧版行为一致）
     var isPredictiveBackEnabled by prefDelegate(PreferKey.isPredictiveBackEnabled, true)
 
     var customMode by prefDelegate<String?>(PreferKey.customMode, "tonalSpot")
 
-    var fontScale by prefDelegate(PreferKey.fontScale, 10) {
-        postEvent(EventBus.RECREATE, "")
-    }
+    var fontScale by prefDelegate(PreferKey.fontScale, 10)
 
-    var appFontPath by prefDelegate<String?>(PreferKey.appFontPath, null) {
-        postEvent(EventBus.RECREATE, "")
-    }
+    var appFontPath by prefDelegate<String?>(PreferKey.appFontPath, null)
 
     var cPrimary by prefDelegate(PreferKey.cPrimary, 0)
 
@@ -105,6 +137,42 @@ object ThemeConfig {
 
     var labelContainerColor by prefDelegate(PreferKey.labelContainerColor, 0)
 
+    var themeColorNight by prefDelegate(PreferKey.themeColorNight, 0)
+
+    var secondaryThemeColorNight by prefDelegate(PreferKey.secondaryThemeColorNight, 0)
+
+    var primaryTextColorNight by prefDelegate(PreferKey.primaryTextColorNight, 0)
+
+    var secondaryTextColorNight by prefDelegate(PreferKey.secondaryTextColorNight, 0)
+
+    var themeBackgroundColorNight by prefDelegate(PreferKey.themeBackgroundColorNight, 0)
+
+    var labelContainerColorNight by prefDelegate(PreferKey.labelContainerColorNight, 0)
+
+    val isDeepPersonalizationActive: Boolean
+        get() = appTheme == CUSTOM_APP_THEME && enableDeepPersonalization
+
+    fun customThemeColors(isDark: Boolean): CustomThemeColors {
+        if (!isDark) {
+            return CustomThemeColors(
+                primary = themeColor,
+                secondary = secondaryThemeColor,
+                primaryText = primaryTextColor,
+                secondaryText = secondaryTextColor,
+                background = themeBackgroundColor,
+                labelContainer = labelContainerColor,
+            )
+        }
+        return CustomThemeColors(
+            primary = themeColorNight.takeIf { it != 0 } ?: themeColor,
+            secondary = secondaryThemeColorNight.takeIf { it != 0 } ?: secondaryThemeColor,
+            primaryText = primaryTextColorNight.takeIf { it != 0 } ?: primaryTextColor,
+            secondaryText = secondaryTextColorNight.takeIf { it != 0 } ?: secondaryTextColor,
+            background = themeBackgroundColorNight.takeIf { it != 0 } ?: themeBackgroundColor,
+            labelContainer = labelContainerColorNight.takeIf { it != 0 } ?: labelContainerColor,
+        )
+    }
+
     var enableItemDivider by prefDelegate(PreferKey.enableItemDivider, false)
 
     var itemDividerWidth by prefDelegate(PreferKey.itemDividerWidth, 1f)
@@ -114,13 +182,9 @@ object ThemeConfig {
 
     var bookInfoInputColor by prefDelegate(PreferKey.bookInfoInputColor, 0)
 
-    var cNPrimary by prefDelegate(PreferKey.cNPrimary, 0) {
-        postEvent(EventBus.RECREATE, "")
-    }
+    var cNPrimary by prefDelegate(PreferKey.cNPrimary, 0)
 
-    var customContrast by prefDelegate(PreferKey.customContrast, "Default") {
-        postEvent(EventBus.RECREATE, "")
-    }
+    var customContrast by prefDelegate(PreferKey.customContrast, "Default")
 
     var launcherIcon by prefDelegate(PreferKey.launcherIcon, "ic_launcher")
 
@@ -142,9 +206,9 @@ object ThemeConfig {
         customTagColorsJson = GSON.toJson(colors)
     }
 
-    var showDiscovery by prefDelegate(PreferKey.showDiscovery, true)
-
     var showHome by prefDelegate(PreferKey.showHome, true)
+
+    var showDiscovery by prefDelegate(PreferKey.showDiscovery, true)
 
     var showRss by prefDelegate(PreferKey.showRss, true)
 
@@ -167,7 +231,12 @@ object ThemeConfig {
 
     var defaultHomePage by prefDelegate(PreferKey.defaultHomePage, "bookshelf")
 
-    var navExtended by prefDelegate("navExtended", false)
+    var mainNavigationOrder by prefDelegate(
+        PreferKey.mainNavigationOrder,
+        "home,bookshelf,explore,rss,my",
+    )
+
+    var navExtended by prefDelegate(PreferKey.navExtended, false)
 
     var webServiceAutoStart by prefDelegate(PreferKey.webServiceAutoStart, false)
 

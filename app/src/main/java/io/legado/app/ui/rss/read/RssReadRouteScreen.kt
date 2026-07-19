@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,11 +51,12 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.constant.AppConst
-import io.legado.app.help.config.AppConfig
 import io.legado.app.help.http.CookieManager
-import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.ui.login.SourceLoginActivity
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.LocalHazeState
+import io.legado.app.ui.theme.ThemeResolver
+import io.legado.app.ui.theme.responsiveHazeEffect
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
@@ -65,6 +67,7 @@ import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.progressIndicator.AppLinearProgressIndicator
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBar
+import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
 import io.legado.app.ui.widget.components.topbar.TopBarActionButton
 import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import io.legado.app.utils.NetworkUtils
@@ -78,6 +81,7 @@ import io.legado.app.utils.toggleSystemBar
 import org.apache.commons.text.StringEscapeUtils
 import org.jsoup.Jsoup
 import org.koin.androidx.compose.koinViewModel
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar as MiuixSmallTopAppBar
 
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,7 +91,9 @@ fun RssReadRouteScreen(
     origin: String,
     link: String?,
     openUrl: String?,
+    startPage: Boolean,
     onBackClick: () -> Unit,
+    onOpenArticles: (sortUrl: String?) -> Unit,
     viewModel: ReadRssViewModel = koinViewModel()
 ) {
     val context = LocalContext.current
@@ -116,7 +122,8 @@ fun RssReadRouteScreen(
     val content by viewModel.contentState.collectAsStateWithLifecycle()
     val analyzeUrl by viewModel.urlState.collectAsStateWithLifecycle()
     val isSpeaking by viewModel.isSpeakingState.collectAsStateWithLifecycle()
-    val fallbackUserAgent = OtherConfig.userAgent
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val fallbackUserAgent = settings.userAgent
 
     fun hideCustomView() {
         val currentCustomView = customView ?: return
@@ -124,16 +131,17 @@ fun RssReadRouteScreen(
         customView = null
         customViewCallback = null
         activity?.keepScreenOn(false)
-        activity?.toggleSystemBar(AppConfig.showStatusBar)
+        activity?.toggleSystemBar(settings.showStatusBar)
     }
 
-    LaunchedEffect(origin, link, openUrl, title) {
+    LaunchedEffect(origin, link, openUrl, title, startPage) {
         viewModel.initData(
             ReadRssArgs(
                 title = title,
                 origin = origin,
                 link = link,
-                openUrl = openUrl
+                openUrl = openUrl,
+                startPage = startPage
             )
         )
     }
@@ -146,8 +154,10 @@ fun RssReadRouteScreen(
         val body = content ?: return@LaunchedEffect
         val currentWebView = webView ?: return@LaunchedEffect
         currentWebView.settings.userAgentString = viewModel.headerMap[AppConst.UA_NAME] ?: fallbackUserAgent
-        val article = viewModel.rssArticle ?: return@LaunchedEffect
-        val url = NetworkUtils.getAbsoluteURL(article.origin, article.link)
+        val article = viewModel.rssArticle
+        val url = article?.let {
+            NetworkUtils.getAbsoluteURL(it.origin, it.link)
+        } ?: origin
         val html = viewModel.clHtml(body)
         if (currentWebView.url != url) {
             if (viewModel.rssSource?.loadWithBaseUrl == true) {
@@ -200,7 +210,7 @@ fun RssReadRouteScreen(
         AppScaffold(
             disableHazeSource = true,
             topBar = {
-                GlassTopAppBar(
+                RssReadTopAppBar(
                     title = pageTitle.ifBlank { defaultTopBarTitle },
                     navigationIcon = {
                         TopBarNavigationButton(onClick = onBackClick)
@@ -211,20 +221,22 @@ fun RssReadRouteScreen(
                             contentDescription = stringResource(R.string.refresh),
                             onClick = { viewModel.refresh { webView?.reload() } }
                         )
-                        TopBarActionButton(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = stringResource(R.string.favorite),
-                            onClick = {
-                                viewModel.addFavorite()
-                                favoriteTitle = viewModel.rssArticle?.title.orEmpty()
-                                favoriteGroup = viewModel.rssArticle?.group.orEmpty()
-                                showFavoriteSheet = true
-                            }
-                        )
+                        if (!startPage) {
+                            TopBarActionButton(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = stringResource(R.string.favorite),
+                                onClick = {
+                                    viewModel.addFavorite()
+                                    favoriteTitle = viewModel.rssArticle?.title.orEmpty()
+                                    favoriteGroup = viewModel.rssArticle?.group.orEmpty()
+                                    showFavoriteSheet = true
+                                }
+                            )
+                        }
                         Box {
                         TopBarActionButton(
                             imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Menu",
+                            contentDescription = stringResource(R.string.more_menu),
                             onClick = { showMenu = true }
                         )
                             RoundDropdownMenu(
@@ -329,40 +341,44 @@ fun RssReadRouteScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                VisibleWebViewCompose(
-                    modifier = Modifier.fillMaxSize(),
-                    onCreated = { createdWebView ->
-                        webView = createdWebView
-                        configureRssReadWebView(
-                            webView = createdWebView,
-                            context = context,
-                            activity = activity,
-                            appCompatActivity = appCompatActivity,
-                            viewModel = viewModel,
-                            initialTitle = title,
-                            redirectPolicyProvider = { redirectPolicy },
-                            callbacks = RssReadWebControllerCallbacks(
-                                onProgressChanged = { webProgress = it },
-                                onPageTitleResolved = { resolved ->
-                                    pageTitle = resolved.ifBlank { defaultTopBarTitle }
-                                },
-                                onShowCustomView = { view, callback ->
-                                    if (view == null) {
-                                        callback?.onCustomViewHidden()
-                                    } else if (customView != null) {
-                                        callback?.onCustomViewHidden()
-                                    } else {
-                                        customView = view
-                                        customViewCallback = callback
-                                        activity?.keepScreenOn(true)
-                                        activity?.toggleSystemBar(false)
-                                    }
-                                },
-                                onHideCustomView = { hideCustomView() }
-                        )
+                if (!startPage || content != null) {
+                    VisibleWebViewCompose(
+                        modifier = Modifier.fillMaxSize(),
+                        onCreated = { createdWebView ->
+                            webView = createdWebView
+                            configureRssReadWebView(
+                                webView = createdWebView,
+                                context = context,
+                                activity = activity,
+                                appCompatActivity = appCompatActivity,
+                                viewModel = viewModel,
+                                initialTitle = title,
+                                isStartPage = startPage,
+                                redirectPolicyProvider = { redirectPolicy },
+                                callbacks = RssReadWebControllerCallbacks(
+                                    onProgressChanged = { webProgress = it },
+                                    onPageTitleResolved = { resolved ->
+                                        pageTitle = resolved.ifBlank { defaultTopBarTitle }
+                                    },
+                                    onShowCustomView = { view, callback ->
+                                        if (view == null) {
+                                            callback?.onCustomViewHidden()
+                                        } else if (customView != null) {
+                                            callback?.onCustomViewHidden()
+                                        } else {
+                                            customView = view
+                                            customViewCallback = callback
+                                            activity?.keepScreenOn(true)
+                                            activity?.toggleSystemBar(false)
+                                        }
+                                    },
+                                    onHideCustomView = { hideCustomView() },
+                                    navigateToArticles = onOpenArticles
+                                )
+                            )
+                        }
                     )
                 }
-                )
                 if (webProgress in 0..99) {
                     AppLinearProgressIndicator(
                         progress = webProgress / 100f,
@@ -404,6 +420,41 @@ fun RssReadRouteScreen(
             showFavoriteSheet = false
         }
     )
+}
+
+@Composable
+private fun RssReadTopAppBar(
+    title: String,
+    navigationIcon: @Composable () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    if (!ThemeResolver.isMiuixEngine(LegadoTheme.composeEngine)) {
+        GlassTopAppBar(
+            title = title,
+            navigationIcon = navigationIcon,
+            actions = actions
+        )
+        return
+    }
+
+    val hazeState = LocalHazeState.current
+    val containerColor = GlassTopAppBarDefaults.getMiuixAppBarColor()
+    val modifier = if (hazeState != null) {
+        Modifier
+            .background(containerColor)
+            .responsiveHazeEffect(hazeState)
+    } else {
+        Modifier.background(containerColor)
+    }
+
+    Column(modifier = modifier) {
+        MiuixSmallTopAppBar(
+            title = title,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            color = Color.Transparent
+        )
+    }
 }
 
 @Composable

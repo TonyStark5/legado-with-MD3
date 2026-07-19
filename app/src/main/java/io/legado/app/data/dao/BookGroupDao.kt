@@ -80,6 +80,20 @@ interface BookGroupDao {
             AND durChapterPos != 0
             AND (`group` = 0 or (const.sumPrivateGroupId & `group`) = 0)
         ))
+        or (groupId = ${BookGroup.IdReadFinishedUpdate} and exists (
+            SELECT 1 FROM books 
+            WHERE totalChapterNum > 0 
+            AND durChapterIndex >= totalChapterNum - 1
+            AND canUpdate = 1
+            AND (`group` = 0 or (const.sumPrivateGroupId & `group`) = 0)
+        ))
+        or (groupId = ${BookGroup.IdReadFinishedComplete} and exists (
+            SELECT 1 FROM books 
+            WHERE totalChapterNum > 0 
+            AND durChapterIndex >= totalChapterNum - 1
+            AND canUpdate = 0
+            AND (`group` = 0 or (const.sumPrivateGroupId & `group`) = 0)
+        ))
         
         or (groupId = ${BookGroup.IdError} and exists (
             select 1 from books
@@ -133,6 +147,17 @@ interface BookGroupDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(vararg bookGroup: BookGroup)
+
+    @androidx.room.Transaction
+    fun replaceAll(bookGroups: List<BookGroup>) {
+        deleteAll()
+        if (bookGroups.isNotEmpty()) {
+            insert(*bookGroups.toTypedArray())
+        }
+    }
+
+    @Query("DELETE FROM book_groups")
+    fun deleteAll()
 
     @Update
     fun update(vararg bookGroup: BookGroup)

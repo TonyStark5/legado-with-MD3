@@ -8,6 +8,7 @@ import android.text.format.DateUtils
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -35,7 +36,6 @@ import io.legado.app.BuildConfig
 import io.legado.app.R
 import io.legado.app.base.BaseComposeActivity
 import io.legado.app.constant.AppConst.appInfo
-import io.legado.app.constant.PreferKey
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.LocalConfig
@@ -47,6 +47,7 @@ import io.legado.app.service.WebService
 import io.legado.app.ui.about.CrashLogsDialog
 import io.legado.app.ui.about.UpdateDialog
 import io.legado.app.ui.book.read.ReadBookInputHandler
+import io.legado.app.ui.book.read.ReadBookRouteHost
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.ui.config.themeConfig.ThemeConfig
@@ -56,6 +57,7 @@ import io.legado.app.ui.widget.dialog.VariableDialog
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
@@ -75,6 +77,7 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         private const val KEY_RESTORE_READ_ALOUD = "restoreReadAloud"
         private const val KEY_RESTORE_READ_IN_BOOKSHELF = "restoreReadInBookshelf"
         private const val KEY_RESTORE_READ_CHAPTER_CHANGED = "restoreReadChapterChanged"
+        private val startupUpdateCheckGate = ProcessStartupUpdateCheckGate()
 
         @Volatile
         var hasActiveReadBookRoute: Boolean = false
@@ -140,6 +143,44 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         ): Intent =
             MainIntent.createBookInfoIntent(context, name, author, bookUrl, origin, coverPath)
 
+        fun createBookCharacterDetailIntent(
+            context: Context,
+            bookUrl: String,
+            characterId: String? = null,
+        ): Intent = MainIntent.createBookCharacterDetailIntent(context, bookUrl, characterId)
+
+        fun createBookCharacterNetworkIntent(
+            context: Context,
+            bookUrl: String,
+        ): Intent = MainIntent.createBookCharacterNetworkIntent(context, bookUrl)
+
+        fun createBookKnowledgeListIntent(
+            context: Context,
+            bookUrl: String,
+        ): Intent = MainIntent.createBookKnowledgeListIntent(context, bookUrl)
+
+        fun createBookCharacterListIntent(
+            context: Context,
+            bookUrl: String,
+        ): Intent = MainIntent.createBookCharacterListIntent(context, bookUrl)
+
+        fun createBookKnowledgeDetailIntent(
+            context: Context,
+            bookUrl: String,
+            entryId: String? = null,
+        ): Intent = MainIntent.createBookKnowledgeDetailIntent(context, bookUrl, entryId)
+
+        fun createBookEventListIntent(
+            context: Context,
+            bookUrl: String,
+        ): Intent = MainIntent.createBookEventListIntent(context, bookUrl)
+
+        fun createBookEventDetailIntent(
+            context: Context,
+            bookUrl: String,
+            eventId: String? = null,
+        ): Intent = MainIntent.createBookEventDetailIntent(context, bookUrl, eventId)
+
         fun createExploreShowIntent(
             context: Context,
             exploreName: String? = null,
@@ -164,6 +205,9 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         super.onCreate(savedInstanceState)
 
         if (checkStartupRoute()) return
+        val shouldAutoCheckUpdate = startupUpdateCheckGate.consume(
+            OtherConfig.autoCheckUpdateOnStart
+        )
 
         // 智能自启：如果上次是手动开启状态（web_service_auto 为 true），则自启
         if (AppConfig.webServiceAutoStart) {
@@ -183,6 +227,9 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
                 viewModel.upAllBookToc()
             }
             viewModel.postLoad()
+            if (shouldAutoCheckUpdate) {
+                checkUpdateOnStart()
+            }
         }
     }
 
@@ -313,6 +360,9 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
                     onRegisterVariableSetter = { setter -> bookInfoVariableSetter = setter }
                 )
             )
+            BackHandler(enabled = !AppConfig.isPredictiveBackEnabled) {
+                MainNavigator.navigateBack(this@MainActivity, backStack)
+            }
         }
     }
 
@@ -325,6 +375,13 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             }
             else -> false
         }
+    }
+
+    private fun checkUpdateOnStart() {
+        AppUpdateGitHub.check(lifecycleScope)
+            .onSuccess { updateInfo ->
+                showDialogFragment(UpdateDialog(updateInfo))
+            }
     }
 
     /**
@@ -391,8 +448,13 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             return
         }
         lifecycleScope.launch {
-            val lastBackupFile =
-                withContext(IO) { viewModel.getLatestWebDavBackup() } ?: return@launch
+            val lastBackupFile = try {
+                withContext(IO) { viewModel.getLatestWebDavBackup() }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return@launch
+            } ?: return@launch
             if (lastBackupFile.lastModify - LocalConfig.lastBackup > DateUtils.MINUTE_IN_MILLIS) {
                 LocalConfig.lastBackup = lastBackupFile.lastModify
                 alert(R.string.restore, R.string.webdav_after_local_restore_confirm) {
@@ -479,6 +541,15 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (activeReadBookInputHandler?.onKeyUp(keyCode, event) == true) return true
         return super.onKeyUp(keyCode, event)
+    }
+
+    override fun setupSystemBar() {
+        val host = activeReadBookInputHandler as? ReadBookRouteHost
+        if (host != null) {
+            host.upSystemUiVisibility()
+        } else {
+            super.setupSystemBar()
+        }
     }
 
     override fun onDestroy() {

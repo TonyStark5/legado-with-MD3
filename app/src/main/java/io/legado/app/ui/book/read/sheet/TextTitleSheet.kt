@@ -1,11 +1,16 @@
 package io.legado.app.ui.book.read.sheet
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,13 +20,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.TextFormat
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,30 +45,39 @@ import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
-import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.ui.book.read.ConfigUpdate
 import io.legado.app.ui.book.read.ReadBookIntent
-import io.legado.app.ui.config.readConfig.ReadConfig
+import io.legado.app.ui.book.read.ReadSheetConfigUiState
+import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.widget.components.AppSlider
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.SectionTitle
+import io.legado.app.ui.widget.components.ValueStepper
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
+import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
+import io.legado.app.ui.widget.components.pager.pagerHeight
+import io.legado.app.ui.widget.components.pager.rememberPagerAnimatedHeight
 import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.settingItem.TinyClickableSettingItem
+import io.legado.app.ui.widget.components.settingItem.TinyColorModeSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyColorSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinyDropdownSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySwitchSettingItem
 import io.legado.app.ui.widget.components.tabRow.CardTabRow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 // Color picker IDs
 private const val COLOR_TEXT = 1
 private const val COLOR_ACCENT = 2
 private const val COLOR_TITLE = 4
+private const val COLOR_TITLE_NIGHT = 5
 
 @Composable
 fun ReadStyleTextTitleContent(
+    config: ReadSheetConfigUiState,
     onOpenShadowSet: () -> Unit,
     onOpenUnderlineConfig: () -> Unit,
     onOpenHighlightRule: () -> Unit,
@@ -92,6 +105,7 @@ fun ReadStyleTextTitleContent(
     }
 
     ReadStyleTextTitleContent(
+        config = config,
         tabTitles = tabTitles,
         selectedTab = selectedTab,
         pagerState = pagerState,
@@ -121,6 +135,7 @@ fun ReadStyleTextTitleContent(
 
 @Composable
 internal fun ReadStyleTextTitleContent(
+    config: ReadSheetConfigUiState,
     tabTitles: List<String>,
     selectedTab: Int,
     pagerState: PagerState,
@@ -170,6 +185,7 @@ internal fun ReadStyleTextTitleContent(
             ) {
                 when (page) {
                     0 -> TextEffectsPage(
+                        config = config,
                         onOpenShadowSet = onOpenShadowSet,
                         onOpenUnderlineConfig = onOpenUnderlineConfig,
                         onOpenHighlightRule = onOpenHighlightRule,
@@ -177,8 +193,9 @@ internal fun ReadStyleTextTitleContent(
                         onIntent = onIntent,
                     )
 
-                    1 -> LayoutSpacingPage(onIntent = onIntent)
+                    1 -> LayoutSpacingPage(config = config, onIntent = onIntent)
                     2 -> TitleSettingsPage(
+                        config = config,
                         onOpenTitleFontSelect = onOpenTitleFontSelect,
                         onIntent = onIntent,
                     )
@@ -192,13 +209,14 @@ internal fun ReadStyleTextTitleContent(
 
 @Composable
 internal fun LayoutSpacingPage(
+    config: ReadSheetConfigUiState,
     modifier: Modifier = Modifier,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
-    var letterSpacing by remember { mutableFloatStateOf(ReadBookConfig.letterSpacing) }
-    var lineSpacing by remember { mutableFloatStateOf(ReadBookConfig.lineSpacingExtra.toFloat()) }
-    var paragraphSpacing by remember { mutableFloatStateOf(ReadBookConfig.paragraphSpacing.toFloat()) }
-    var indentCount by remember { mutableIntStateOf(ReadBookConfig.paragraphIndent.length) }
+    var letterSpacing by remember { mutableFloatStateOf(config.letterSpacing) }
+    var lineSpacing by remember { mutableFloatStateOf(config.lineSpacing.toFloat()) }
+    var paragraphSpacing by remember { mutableFloatStateOf(config.paragraphSpacing.toFloat()) }
+    var indentCount by remember { mutableIntStateOf(config.paragraphIndentCount) }
 
     Column(
         modifier = modifier
@@ -221,6 +239,8 @@ internal fun LayoutSpacingPage(
             title = stringResource(R.string.text_letter_spacing),
             value = (letterSpacing * 100) + 50,
             valueRange = 0f..100f,
+            steps = 99,
+            valueFormat = { ((it - 50) / 100f).toString() },
             onValueChange = { value ->
                 letterSpacing = (value - 50) / 100f
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.LetterSpacing(letterSpacing)))
@@ -230,6 +250,8 @@ internal fun LayoutSpacingPage(
             title = stringResource(R.string.line_size),
             value = lineSpacing,
             valueRange = 0f..20f,
+            steps = 19,
+            valueFormat = { ((it - 10) / 10f).toString() },
             onValueChange = { value ->
                 lineSpacing = value
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.LineSpacing(value.toInt())))
@@ -239,6 +261,8 @@ internal fun LayoutSpacingPage(
             title = stringResource(R.string.paragraph_size),
             value = paragraphSpacing,
             valueRange = 0f..20f,
+            steps = 19,
+            valueFormat = { (it / 10f).toString() },
             onValueChange = { value ->
                 paragraphSpacing = value
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.ParagraphSpacing(value.toInt())))
@@ -251,6 +275,7 @@ internal fun LayoutSpacingPage(
 
 @Composable
 internal fun TextEffectsPage(
+    config: ReadSheetConfigUiState,
     onOpenShadowSet: () -> Unit,
     onOpenUnderlineConfig: () -> Unit,
     onOpenHighlightRule: () -> Unit,
@@ -258,8 +283,8 @@ internal fun TextEffectsPage(
     modifier: Modifier = Modifier,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
-    var textItalic by remember { mutableStateOf(ReadBookConfig.textItalic) }
-    var textBold by remember { mutableIntStateOf(ReadBookConfig.textBold) }
+    var textItalic by remember { mutableStateOf(config.textItalic) }
+    var textBold by remember { mutableIntStateOf(config.textBold) }
 
     var showColorPicker by remember { mutableStateOf(false) }
     var colorPickerId by remember { mutableIntStateOf(0) }
@@ -281,14 +306,11 @@ internal fun TextEffectsPage(
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TextItalic(it)))
             },
         )
-        TinySliderSettingItem(
-            title = stringResource(R.string.font_weight_text),
-            value = textBold.coerceAtLeast(100).toFloat(),
-            valueRange = 100f..900f,
-            imageVector = Icons.Default.FormatBold,
+        FontWeightSetting(
+            value = textBold,
             onValueChange = { value ->
-                textBold = value.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TextBold(value.toInt())))
+                textBold = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TextBold(value)))
             },
         )
 
@@ -302,7 +324,7 @@ internal fun TextEffectsPage(
         val chineseConvertValues = remember { arrayOf("0", "1", "2") }
         TinyDropdownSettingItem(
             title = stringResource(R.string.chinese_converter),
-            selectedValue = ReadConfig.chineseConverterType.toString(),
+            selectedValue = config.chineseConverterType.toString(),
             displayEntries = chineseConvertEntries,
             entryValues = chineseConvertValues,
             onValueChange = {
@@ -310,25 +332,23 @@ internal fun TextEffectsPage(
             },
         )
 
-        Spacer(Modifier.height(8.dp))
-
         // Colors
         SectionTitle(stringResource(R.string.read_color))
         TinyColorSettingItem(
             title = stringResource(R.string.text_color),
-            colorValue = ReadBookConfig.durConfig.curTextColor(),
+            colorValue = config.textColor,
             onClick = {
                 colorPickerId = COLOR_TEXT
-                colorPickerInitial = ReadBookConfig.durConfig.curTextColor()
+                colorPickerInitial = config.textColor
                 showColorPicker = true
             },
         )
         TinyColorSettingItem(
             title = stringResource(R.string.text_accent_color),
-            colorValue = ReadBookConfig.durConfig.curTextAccentColor(),
+            colorValue = config.textAccentColor,
             onClick = {
                 colorPickerId = COLOR_ACCENT
-                colorPickerInitial = ReadBookConfig.durConfig.curTextAccentColor()
+                colorPickerInitial = config.textAccentColor
                 showColorPicker = true
             },
         )
@@ -380,31 +400,26 @@ internal fun TextEffectsPage(
 
 @Composable
 internal fun TitleSettingsPage(
+    config: ReadSheetConfigUiState,
     onOpenTitleFontSelect: () -> Unit,
     modifier: Modifier = Modifier,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
-    var titleMode by remember(ReadBookConfig.titleMode) { mutableIntStateOf(ReadBookConfig.titleMode) }
-    var titleBold by remember(ReadBookConfig.titleBold) { mutableIntStateOf(ReadBookConfig.titleBold) }
-    var titleSegType by remember(ReadBookConfig.titleSegType) { mutableIntStateOf(ReadBookConfig.titleSegType) }
-    var titleSegDistance by remember(ReadBookConfig.titleSegDistance) { mutableIntStateOf(ReadBookConfig.titleSegDistance) }
-    var titleSegFlag by remember(ReadBookConfig.titleSegFlag) { mutableStateOf(ReadBookConfig.titleSegFlag) }
-    var titleSegScaling by remember(ReadBookConfig.titleSegScaling) { mutableFloatStateOf(ReadBookConfig.titleSegScaling) }
-    var titleLineSpacingExtra by remember(ReadBookConfig.titleLineSpacingExtra) { mutableIntStateOf(ReadBookConfig.titleLineSpacingExtra) }
-    var titleLineSpacingSub by remember(ReadBookConfig.titleLineSpacingSub) { mutableIntStateOf(ReadBookConfig.titleLineSpacingSub) }
-    var titleSize by remember(ReadBookConfig.titleSize) { mutableIntStateOf(ReadBookConfig.titleSize) }
-    var titleTopSpacing by remember(ReadBookConfig.titleTopSpacing) { mutableIntStateOf(ReadBookConfig.titleTopSpacing) }
-    var titleBottomSpacing by remember(ReadBookConfig.titleBottomSpacing) { mutableIntStateOf(ReadBookConfig.titleBottomSpacing) }
+    var titleMode by remember(config.titleMode) { mutableIntStateOf(config.titleMode) }
+    var titleBold by remember(config.titleBold) { mutableIntStateOf(config.titleBold) }
+    var titleSegType by remember(config.titleSegType) { mutableIntStateOf(config.titleSegType) }
+    var titleSegDistance by remember(config.titleSegDistance) { mutableIntStateOf(config.titleSegDistance) }
+    var titleSegFlag by remember(config.titleSegFlag) { mutableStateOf(config.titleSegFlag) }
+    var titleSegScaling by remember(config.titleSegScaling) { mutableFloatStateOf(config.titleSegScaling) }
+    var titleLineSpacingExtra by remember(config.titleLineSpacingExtra) { mutableIntStateOf(config.titleLineSpacingExtra) }
+    var titleLineSpacingSub by remember(config.titleLineSpacingSub) { mutableIntStateOf(config.titleLineSpacingSub) }
+    var titleSize by remember(config.titleSize) { mutableIntStateOf(config.titleSize) }
+    var titleTopSpacing by remember(config.titleTopSpacing) { mutableIntStateOf(config.titleTopSpacing) }
+    var titleBottomSpacing by remember(config.titleBottomSpacing) { mutableIntStateOf(config.titleBottomSpacing) }
 
     var showColorPicker by remember { mutableStateOf(false) }
     var colorPickerId by remember { mutableIntStateOf(0) }
     var colorPickerInitial by remember { mutableIntStateOf(0) }
-
-    val weightIconMap = mapOf(
-        0 to Icons.Default.TextFields,
-        1 to Icons.Default.TextFormat,
-        2 to Icons.Default.FormatBold,
-    )
 
     Column(
         modifier = modifier
@@ -427,38 +442,45 @@ internal fun TitleSettingsPage(
             },
         )
 
-        Spacer(Modifier.height(8.dp))
-
-        TinySliderSettingItem(
-            title = stringResource(R.string.font_weight_text),
-            value = titleBold.coerceAtLeast(100).toFloat(),
-            valueRange = 100f..900f,
-            imageVector = weightIconMap[titleBold] ?: Icons.Default.FormatBold,
+        FontWeightSetting(
+            value = titleBold,
             onValueChange = { value ->
-                titleBold = value.toInt()
-                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleBold(value.toInt())))
+                titleBold = value
+                onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleBold(value)))
             },
         )
 
-        TinyColorSettingItem(
+        TinyColorModeSettingItem(
             title = stringResource(R.string.title_color),
-            colorValue = if (ReadBookConfig.titleColor != 0) {
-                ReadBookConfig.titleColor or 0xFF000000.toInt()
+            dayColor = if (config.titleColor != 0) {
+                config.titleColor
             } else {
-                ReadBookConfig.textColor or 0xFF000000.toInt()
+                config.textColorDay
             },
-            onClick = {
-                colorPickerId = COLOR_TITLE
-                colorPickerInitial = if (ReadBookConfig.titleColor != 0) {
-                    ReadBookConfig.titleColor or 0xFF000000.toInt()
+            nightColor = if (config.titleColorNight != 0) {
+                config.titleColorNight
+            } else {
+                config.textColorNight
+            },
+            onClickColor = { isNight ->
+                if (isNight) {
+                    colorPickerId = COLOR_TITLE_NIGHT
+                    colorPickerInitial = if (config.titleColorNight != 0) {
+                        config.titleColorNight
+                    } else {
+                        config.textColorNight
+                    }
                 } else {
-                    ReadBookConfig.textColor or 0xFF000000.toInt()
+                    colorPickerId = COLOR_TITLE
+                    colorPickerInitial = if (config.titleColor != 0) {
+                        config.titleColor
+                    } else {
+                        config.textColorDay
+                    }
                 }
                 showColorPicker = true
             },
         )
-
-        Spacer(Modifier.height(8.dp))
 
         // Title font
         TinyClickableSettingItem(
@@ -466,8 +488,6 @@ internal fun TitleSettingsPage(
             imageVector = Icons.Default.TextFields,
             onClick = onOpenTitleFontSelect,
         )
-
-        Spacer(Modifier.height(8.dp))
 
         // Title segmentation
         TinyDropdownSettingItem(
@@ -530,22 +550,23 @@ internal fun TitleSettingsPage(
             )
         }
 
-        Spacer(Modifier.height(8.dp))
-
         // Title spacing sliders
         TinySliderSettingItem(
             title = stringResource(R.string.subtitle_scale),
-            value = titleSegScaling * 10,
-            valueRange = 0f..100f,
+            value = titleSegScaling,
+            valueRange = -2f..2f,
+            steps = 39,
+            stepSize = 0.1f,
+            valueFormat = { "%.1f".format(it) },
             onValueChange = { value ->
-                titleSegScaling = value / 10f
+                titleSegScaling = (value * 10).roundToInt() / 10f
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleSegScaling(titleSegScaling)))
             },
         )
         TinySliderSettingItem(
             title = stringResource(R.string.heading_spacing),
             value = titleLineSpacingExtra.toFloat(),
-            valueRange = 0f..100f,
+            valueRange = 0f..20f,
             onValueChange = { value ->
                 titleLineSpacingExtra = value.toInt()
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleLineSpacingExtra(titleLineSpacingExtra)))
@@ -554,7 +575,7 @@ internal fun TitleSettingsPage(
         TinySliderSettingItem(
             title = stringResource(R.string.subtitle_margin),
             value = titleLineSpacingSub.toFloat(),
-            valueRange = 0f..100f,
+            valueRange = -30f..30f,
             onValueChange = { value ->
                 titleLineSpacingSub = value.toInt()
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleLineSpacingSub(titleLineSpacingSub)))
@@ -563,7 +584,7 @@ internal fun TitleSettingsPage(
         TinySliderSettingItem(
             title = stringResource(R.string.title_font_size),
             value = titleSize.toFloat(),
-            valueRange = 0f..100f,
+            valueRange = 0f..20f,
             onValueChange = { value ->
                 titleSize = value.toInt()
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleSize(titleSize)))
@@ -572,7 +593,7 @@ internal fun TitleSettingsPage(
         TinySliderSettingItem(
             title = stringResource(R.string.title_margin_top),
             value = titleTopSpacing.toFloat(),
-            valueRange = 0f..100f,
+            valueRange = 0f..200f,
             onValueChange = { value ->
                 titleTopSpacing = value.toInt()
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleTopSpacing(titleTopSpacing)))
@@ -581,7 +602,7 @@ internal fun TitleSettingsPage(
         TinySliderSettingItem(
             title = stringResource(R.string.title_margin_bottom),
             value = titleBottomSpacing.toFloat(),
-            valueRange = 0f..100f,
+            valueRange = 0f..200f,
             onValueChange = { value ->
                 titleBottomSpacing = value.toInt()
                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleBottomSpacing(titleBottomSpacing)))
@@ -600,8 +621,114 @@ internal fun TitleSettingsPage(
                 COLOR_TITLE -> {
                     onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleColor(color)))
                 }
+                COLOR_TITLE_NIGHT -> {
+                    onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TitleColorNight(color)))
+                }
             }
             showColorPicker = false
         },
     )
+}
+
+@Composable
+private fun FontWeightSetting(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+) {
+    var showVariableWeight by remember { mutableStateOf(false) }
+    var sliderValue by remember(value) {
+        mutableFloatStateOf(
+            when (value) {
+                2 -> 300f
+                0 -> 400f
+                1 -> 900f
+                else -> value.coerceIn(100, 900).toFloat()
+            }
+        )
+    }
+    val weightEntries = stringArrayResource(R.array.text_font_weight)
+
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                TinyDropdownSettingItem(
+                    title = stringResource(R.string.font_weight_text),
+                    selectedValue = value.toString(),
+                    displayEntries = arrayOf(
+                        weightEntries[2],
+                        weightEntries[0],
+                        weightEntries[1],
+                    ),
+                    entryValues = arrayOf("2", "0", "1"),
+                    onValueChange = { onValueChange(it.toInt()) },
+                )
+            }
+            NormalCard(
+                onClick = { showVariableWeight = !showVariableWeight },
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .height(56.dp)
+                    .aspectRatio(1f),
+                containerColor = if (showVariableWeight) {
+                    LegadoTheme.colorScheme.secondaryContainer
+                } else {
+                    LegadoTheme.colorScheme.surfaceContainerLow
+                },
+                contentColor = if (showVariableWeight) {
+                    LegadoTheme.colorScheme.onSecondaryContainer
+                } else {
+                    LegadoTheme.colorScheme.onSurfaceVariant
+                },
+                cornerRadius = 12.dp,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = stringResource(R.string.font_weight_text),
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = showVariableWeight) {
+            NormalCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .height(56.dp),
+                containerColor = LegadoTheme.colorScheme.surfaceContainerLow,
+                cornerRadius = 12.dp,
+            ) {
+                ValueStepper(
+                    value = sliderValue,
+                    displayValue = sliderValue,
+                    valueRange = 100f..900f,
+                    onValueChange = {
+                        sliderValue = it
+                        onValueChange(it.toInt())
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    content = {
+                        AppSlider(
+                            value = sliderValue,
+                            onValueChange = { sliderValue = it },
+                            onValueChangeFinished = {
+                                onValueChange(sliderValue.toInt())
+                            },
+                            valueRange = 100f..900f,
+                            modifier = Modifier.weight(1f),
+                        )
+                    },
+                )
+            }
+        }
+    }
 }

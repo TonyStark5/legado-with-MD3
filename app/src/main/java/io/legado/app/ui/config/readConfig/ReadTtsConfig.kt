@@ -35,6 +35,11 @@ object ReadTtsConfig {
         0
     )
 
+    var ttsParagraphInterval by prefDelegate(
+        PreferKey.ttsParagraphInterval,
+        0
+    )
+
     var ignoreAudioFocus by prefDelegate(
         PreferKey.ignoreAudioFocus,
         false
@@ -48,6 +53,11 @@ object ReadTtsConfig {
     var readAloudWakeLock by prefDelegate(
         PreferKey.readAloudWakeLock,
         false
+    )
+
+    var showReadAloudCapsule by prefDelegate(
+        PreferKey.showReadAloudCapsule,
+        true
     )
 
     var mediaButtonPerNext by prefDelegate(
@@ -73,6 +83,16 @@ object ReadTtsConfig {
     var contentSelectSpeakMod by prefDelegate(
         PreferKey.contentSelectSpeakMod,
         0
+    )
+
+    var speechAnalysisMode by prefDelegate(
+        PreferKey.speechAnalysisMode,
+        "rule"
+    )
+
+    var useMultiSpeaker by prefDelegate(
+        PreferKey.useMultiSpeaker,
+        true
     )
 
     var audioPreDownloadNum by prefDelegate(

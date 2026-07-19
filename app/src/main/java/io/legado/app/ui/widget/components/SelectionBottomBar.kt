@@ -10,13 +10,12 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
@@ -30,17 +29,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.legado.app.R
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.text.AppText
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.FloatingToolbar as MiuixFloatingToolbar
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 data class SelectionActions(
     val primaryAction: ActionItem,
@@ -67,6 +68,9 @@ fun SelectionBottomBar(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val isMiuix = ThemeResolver.isMiuixEngine(LegadoTheme.composeEngine)
+    val selectAllDescription = stringResource(R.string.select_all)
+    val invertSelectionDescription = stringResource(R.string.invert_selection)
+    val moreActionsDescription = stringResource(R.string.more_menu)
 
     if (isMiuix) {
         MiuixFloatingToolbar(
@@ -80,25 +84,25 @@ fun SelectionBottomBar(
                 MiuixIconButton(onClick = onSelectAll) {
                     MiuixIcon(
                         imageVector = Icons.Default.SelectAll,
-                        contentDescription = "Select All"
+                        contentDescription = selectAllDescription
                     )
                 }
                 MiuixIconButton(onClick = onSelectInvert) {
                     MiuixIcon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "Invert Selection"
+                        contentDescription = invertSelectionDescription
                     )
                 }
 
                 MiuixIconButton(
                     onClick = primaryAction.onClick,
-                    backgroundColor = MiuixTheme.colorScheme.primary,
+                    backgroundColor = MiuixTheme.colorScheme.secondaryContainer,
                     minWidth = 64.dp
                 ) {
                     MiuixIcon(
                         imageVector = primaryAction.icon,
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.onPrimary
+                        contentDescription = primaryAction.text,
+                        tint = MiuixTheme.colorScheme.onSecondaryContainer
                     )
                 }
 
@@ -107,7 +111,7 @@ fun SelectionBottomBar(
                         MiuixIconButton(onClick = { showMenu = true }) {
                             MiuixIcon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More actions"
+                                contentDescription = moreActionsDescription
                             )
                         }
                         RoundDropdownMenu(
@@ -136,13 +140,13 @@ fun SelectionBottomBar(
                 IconButton(onClick = onSelectAll) {
                     AppIcon(
                         imageVector = Icons.Default.SelectAll,
-                        contentDescription = "Select All"
+                        contentDescription = selectAllDescription
                     )
                 }
                 IconButton(onClick = onSelectInvert) {
                     AppIcon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "Invert Selection"
+                        contentDescription = invertSelectionDescription
                     )
                 }
             },
@@ -152,17 +156,22 @@ fun SelectionBottomBar(
                         IconButton(onClick = { showMenu = true }) {
                             AppIcon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More actions"
+                                contentDescription = moreActionsDescription
                             )
                         }
-                        DropdownMenu(
+                        RoundDropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
                             secondaryActions.forEach { action ->
-                                DropdownMenuItem(
-                                    text = { AppText(action.text) },
-                                    leadingIcon = action.icon?.let { { AppIcon(imageVector = it, contentDescription = null) } },
+                                RoundDropdownMenuItem(
+                                    text = action.text,
+                                    leadingIcon = {
+                                        AppIcon(
+                                            imageVector = action.icon,
+                                            contentDescription = null
+                                        )
+                                    },
                                     onClick = {
                                         action.onClick()
                                         showMenu = false
@@ -184,8 +193,15 @@ fun SelectionBottomBar(
                     FilledIconButton(
                         modifier = Modifier.width(64.dp),
                         onClick = primaryAction.onClick,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = LegadoTheme.colorScheme.secondaryContainer,
+                            contentColor = LegadoTheme.colorScheme.onSecondaryContainer,
+                        ),
                     ) {
-                        AppIcon(imageVector = primaryAction.icon, contentDescription = null)
+                        AppIcon(
+                            imageVector = primaryAction.icon,
+                            contentDescription = primaryAction.text
+                        )
                     }
                 }
             }

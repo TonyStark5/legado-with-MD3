@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -94,20 +95,26 @@ fun AppFloatingActionButton(
         )
     } else {
         if (tooltipText != null) {
-            TooltipBox(
-                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-                    TooltipAnchorPosition.Above
-                ),
-                tooltip = { PlainTooltip { AppText(tooltipText) } },
-                state = rememberTooltipState(),
-            ) {
-                FloatingActionButton(
-                    onClick = onClick,
-                    modifier = modifier,
-                    containerColor = containerColor,
-                    contentColor = contentColor,
-                    content = fabContent
-                )
+            Box(modifier = modifier) {
+                TooltipBox(
+                    positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
+                        TooltipAnchorPosition.Above
+                    ),
+                    tooltip = {
+                        PlainTooltip(
+                            containerColor = LegadoTheme.colorScheme.surfaceContainerLow,
+                            contentColor = LegadoTheme.colorScheme.onSurface,
+                        ) { AppText(tooltipText) }
+                    },
+                    state = rememberTooltipState(),
+                ) {
+                    FloatingActionButton(
+                        onClick = onClick,
+                        containerColor = containerColor,
+                        contentColor = contentColor,
+                        content = fabContent
+                    )
+                }
             }
         } else {
             FloatingActionButton(
@@ -192,7 +199,7 @@ fun AppFloatingActionButtonMenu(
                         MiuixIcon(
                             imageVector = if (expanded) Icons.Filled.Close
                             else Icons.AutoMirrored.Filled.MenuOpen,
-                            contentDescription = "Menu",
+                            contentDescription = stringResource(R.string.menu),
                             tint = Color.White
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -224,7 +231,7 @@ fun AppFloatingActionButtonMenu(
                     }
                     Icon(
                         imageVector = imageVector,
-                        contentDescription = "Menu",
+                        contentDescription = stringResource(R.string.menu),
                         modifier = Modifier.animateIcon({ checkedProgress }),
                     )
                 }

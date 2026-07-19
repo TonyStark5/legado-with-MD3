@@ -2,6 +2,7 @@ package io.legado.app.ui.book.read.sheet
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -42,11 +43,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.HighlightRule
 import io.legado.app.data.repository.ReadSettingsRepository
 import io.legado.app.data.repository.configNames
 import io.legado.app.data.repository.toJsonArray
-import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.FontFolderState
@@ -61,20 +62,25 @@ import io.legado.app.ui.widget.components.settingItem.TinyDropdownSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySwitchSettingItem
 import io.legado.app.ui.widget.components.text.AppText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import splitties.init.appCtx
+import io.legado.app.utils.toastOnUi
 import java.io.File
 
 @Composable
 fun HighlightRuleEditSheet(
     show: Boolean,
     rule: HighlightRule?,
+    allConfigNames: List<String>,
     onDismissRequest: () -> Unit,
     onSave: (HighlightRule) -> Unit,
 ) {
     val isNew = rule == null
     val initial = remember(show, rule) { rule ?: HighlightRule() }
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Rule info state
     var pattern by remember(show, rule) { mutableStateOf(initial.pattern) }
@@ -117,7 +123,6 @@ fun HighlightRuleEditSheet(
     var hasBgImage by remember(show, rule) { mutableStateOf(initial.bgImage?.isNotBlank() == true) }
 
     // Config binding state — empty set = global (applies to all configs)
-    val allConfigNames = remember { ReadBookConfig.configList.map { it.name }.filter { it.isNotBlank() } }
     var configNames by remember(show, rule) {
         mutableStateOf(initial.configName.orEmpty().configNames().toSet())
     }
@@ -135,20 +140,51 @@ fun HighlightRuleEditSheet(
     // Validation
     var patternError by remember(show, rule) { mutableStateOf<String?>(null) }
 
-    // SAF image picker
+    // System photo picker, with the contract's built-in fallback on older devices.
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val dir = File(appCtx.filesDir, "bg_images")
-            if (!dir.exists()) dir.mkdirs()
-            val target = File(dir, "bg_${System.currentTimeMillis()}.jpg")
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { output ->
-                    input.copyTo(output)
+            coroutineScope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val dir = File(appCtx.filesDir, "bg_images")
+                        if (!dir.exists()) dir.mkdirs()
+                        val displayName = context.contentResolver.query(
+                            uri,
+                            arrayOf(OpenableColumns.DISPLAY_NAME),
+                            null,
+                            null,
+                            null,
+                        )?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                    .takeIf { it >= 0 }
+                                    ?.let(cursor::getString)
+                            } else {
+                                null
+                            }
+                        }
+                        val suffix = when {
+                            displayName?.endsWith(".9.png", ignoreCase = true) == true -> ".9.png"
+                            displayName?.substringAfterLast('.', "").isNullOrBlank() -> ".img"
+                            else -> ".${displayName.substringAfterLast('.')}"
+                        }
+                        val target = File(dir, "bg_${System.currentTimeMillis()}$suffix")
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            target.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        } ?: throw java.io.FileNotFoundException("Open input stream failed")
+                        target.absolutePath
+                    }
+                }.onSuccess { path ->
+                    bgImage = path
+                }.onFailure { throwable ->
+                    context.toastOnUi(R.string.error)
+                    AppLog.put("选择高亮背景图失败", throwable)
                 }
             }
-            bgImage = target.absolutePath
         }
     }
 
@@ -194,7 +230,7 @@ fun HighlightRuleEditSheet(
             }) {
                 androidx.compose.material3.Icon(
                     Icons.Default.Done,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.save),
                 )
             }
         },
@@ -362,7 +398,9 @@ fun HighlightRuleEditSheet(
                 TinyClickableSettingItem(
                     title = stringResource(R.string.highlight_bg_image),
                     description = bgImage.ifBlank { null }?.let { File(it).name },
-                    onClick = { imagePicker.launch("image/*") },
+                    onClick = {
+                        imagePicker.launch("image/*")
+                    },
                 )
             }
             if (hasBgImage && bgImage.isNotBlank()) {

@@ -14,7 +14,8 @@ import kotlinx.coroutines.launch
 
 object MainNavigator {
 
-    private var backNavigationInProgress = false
+    var backNavigationInProgress = false
+        private set
     private val navigationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var backNavigationResetJob: Job? = null
 
@@ -38,11 +39,28 @@ object MainNavigator {
                 }
             }
 
+            MainRouteAiChat -> {
+                if (currentRoute == MainRouteSettingsAi || currentRoute == MainRouteHome) {
+                    backStack.add(route)
+                } else {
+                    backStack.clear()
+                    backStack.add(MainRouteHome)
+                    backStack.add(MainRouteSettings)
+                    backStack.add(MainRouteSettingsAi)
+                    backStack.add(route)
+                }
+            }
+
             MainRouteSettingsOther,
             MainRouteSettingsRead,
             MainRouteSettingsCover,
             MainRouteSettingsTheme,
             MainRouteSettingsBackup,
+            MainRouteSettingsAi,
+            is MainRouteSettingsAiProviderEdit,
+            is MainRouteSettingsAiModelEdit,
+            MainRouteSettingsAiSummary,
+            MainRouteSettingsAiPrompt,
             MainRouteSettingsCustomTheme,
             MainRouteSettingsThemeManage,
             MainRouteSettingsDownloadCache,
@@ -95,6 +113,36 @@ object MainNavigator {
                     currentRoute is MainRouteSearch ||
                     currentRoute is MainRouteExploreShow ||
                     currentRoute is MainRouteBookInfo
+                ) {
+                    backStack.add(route)
+                } else {
+                    backStack.clear()
+                    backStack.add(MainRouteHome)
+                    backStack.add(route)
+                }
+            }
+
+            is MainRouteBookCharacterDetail,
+            is MainRouteBookCharacterNetwork,
+            is MainRouteBookCharacterList,
+            is MainRouteBookVoiceCasting,
+            MainRouteCloudTtsEngines,
+            is MainRouteBookKnowledgeList,
+            is MainRouteBookKnowledgeDetail,
+            is MainRouteBookEventList,
+            is MainRouteBookEventDetail -> {
+                if (
+                    currentRoute is MainRouteBookInfo ||
+                    currentRoute is MainRouteBookCharacterDetail ||
+                    currentRoute is MainRouteBookCharacterNetwork ||
+                    currentRoute is MainRouteBookCharacterList ||
+                    currentRoute is MainRouteBookVoiceCasting ||
+                    currentRoute == MainRouteCloudTtsEngines ||
+                    currentRoute is MainRouteBookKnowledgeList ||
+                    currentRoute is MainRouteBookKnowledgeDetail ||
+                    currentRoute is MainRouteBookEventList ||
+                    currentRoute is MainRouteBookEventDetail ||
+                    currentRoute is MainRouteReadBook
                 ) {
                     backStack.add(route)
                 } else {
@@ -158,6 +206,7 @@ object MainNavigator {
                 }
             }
 
+            MainRouteHighlightTagRule,
             MainRouteReadRecord -> {
                 if (currentRoute == MainRouteHome) {
                     backStack.add(route)
@@ -262,6 +311,8 @@ object MainNavigator {
             MainRouteConst.ROUTE_SETTINGS_COVER -> MainRouteSettingsCover
             MainRouteConst.ROUTE_SETTINGS_THEME -> MainRouteSettingsTheme
             MainRouteConst.ROUTE_SETTINGS_BACKUP -> MainRouteSettingsBackup
+            MainRouteConst.ROUTE_SETTINGS_AI -> MainRouteSettingsAi
+            MainRouteConst.ROUTE_AI_CHAT -> MainRouteAiChat
             MainRouteConst.ROUTE_SETTINGS_CUSTOM_THEME -> MainRouteSettingsCustomTheme
             MainRouteConst.ROUTE_SETTINGS_DOWNLOAD_CACHE -> MainRouteSettingsDownloadCache
             MainRouteConst.ROUTE_SETTINGS_TRANSLATION -> MainRouteSettingsTranslation
@@ -298,6 +349,57 @@ object MainNavigator {
                         bookUrl = bookUrl,
                         origin = intent.getStringExtra(MainIntent.EXTRA_BOOK_ORIGIN),
                         coverPath = intent.getStringExtra(MainIntent.EXTRA_BOOK_COVER)
+                    )
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_CHARACTER_DETAIL -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookCharacterDetail(
+                        bookUrl = bookUrl,
+                        characterId = intent.getStringExtra(MainIntent.EXTRA_CHARACTER_ID),
+                    )
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_CHARACTER_NETWORK -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookCharacterNetwork(bookUrl = bookUrl)
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_CHARACTER_LIST -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookCharacterList(bookUrl = bookUrl)
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_KNOWLEDGE_LIST -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookKnowledgeList(bookUrl = bookUrl)
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_KNOWLEDGE_DETAIL -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookKnowledgeDetail(
+                        bookUrl = bookUrl,
+                        entryId = intent.getStringExtra(MainIntent.EXTRA_ENTRY_ID),
+                    )
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_EVENT_LIST -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookEventList(bookUrl = bookUrl)
+                } ?: MainRouteHome
+
+            MainRouteConst.ROUTE_BOOK_EVENT_DETAIL -> intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { bookUrl ->
+                    MainRouteBookEventDetail(
+                        bookUrl = bookUrl,
+                        eventId = intent.getStringExtra(MainIntent.EXTRA_EVENT_ID),
                     )
                 } ?: MainRouteHome
 

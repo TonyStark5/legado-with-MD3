@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.animation.Animation
 import android.widget.FrameLayout
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.view.ViewCompat
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
@@ -88,6 +89,7 @@ class MangaMenu @JvmOverloads constructor(
         override fun onAnimationStart(animation: Animation) {
             binding.tvSourceAction.text =
                 ReadManga.bookSource?.bookSourceName ?: context.getString(R.string.book_source)
+            updateSourceActionDescription()
             callBack.upSystemUiVisibility(true)
             binding.tvSourceAction.isGone = false
         }
@@ -165,6 +167,7 @@ class MangaMenu @JvmOverloads constructor(
     fun upBookView() {
         binding.titleBar.title = " "
         binding.tvBookName.text = ReadManga.book?.name
+        updateSourceActionDescription()
         ReadManga.curMangaChapter?.let {
             binding.tvChapterName.text = ReadManga.book?.durChapterTitle
             binding.tvPre.isEnabled = ReadManga.durChapterIndex != 0
@@ -215,6 +218,8 @@ class MangaMenu @JvmOverloads constructor(
         tvChapterUrl.setOnClickListener(chapterViewClickListener)
         tvChapterUrl.setOnLongClickListener(chapterViewLongClickListener)
         tvSourceAction.setOnLongClickListener {
+            sourceMenu.menu.findItem(R.id.menu_chapter_pay).isVisible =
+                !ReadManga.bookSource?.getContentRule()?.payAction.isNullOrBlank()
             sourceMenu.show()
             true
         }
@@ -228,6 +233,10 @@ class MangaMenu @JvmOverloads constructor(
         seekReadPage.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 HapticFeedbackConstantsCompat.TEXT_HANDLE_MOVE
+                updateSeekAccessibility(
+                    value = value.toInt(),
+                    count = seekReadPage.valueTo.toInt().coerceAtLeast(1),
+                )
                 callBack.skipToPage(value.toInt() - 1)
             }
         }
@@ -277,7 +286,30 @@ class MangaMenu @JvmOverloads constructor(
                 stepSize = 1f
                 this.value = value.toFloat().coerceIn(valueFrom, valueTo)
             }
+            updateSeekAccessibility(
+                value = this.value.toInt(),
+                count = if (count <= 1) 1 else count,
+            )
         }
+    }
+
+    private fun updateSeekAccessibility(value: Int, count: Int) {
+        binding.seekReadPage.contentDescription = context.getString(R.string.progress)
+        ViewCompat.setStateDescription(
+            binding.seekReadPage,
+            context.getString(
+                R.string.a11y_read_progress_page,
+                value.coerceAtLeast(1),
+                count.coerceAtLeast(1),
+            )
+        )
+    }
+
+    private fun updateSourceActionDescription() {
+        binding.tvSourceAction.contentDescription = context.getString(
+            R.string.a11y_book_source_action,
+            binding.tvSourceAction.text,
+        )
     }
 
     interface CallBack {

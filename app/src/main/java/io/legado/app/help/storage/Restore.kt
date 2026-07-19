@@ -3,19 +3,22 @@ package io.legado.app.help.storage
 import android.content.Context
 import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
-import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
 import io.legado.app.BuildConfig
 import io.legado.app.R
-import io.legado.app.constant.AppConst.androidId
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.PreferKey
+import io.legado.app.domain.gateway.AppLocaleGateway
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookGroup
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.Bookmark
 import io.legado.app.data.entities.DictRule
+import io.legado.app.data.entities.HighlightRule
+import io.legado.app.data.entities.HighlightTagRule
+import io.legado.app.data.entities.HomepageCustomSet
+import io.legado.app.data.entities.HomepageModule
 import io.legado.app.data.entities.HttpTTS
 import io.legado.app.data.entities.KeyboardAssist
 import io.legado.app.data.entities.ReplaceRule
@@ -24,18 +27,21 @@ import io.legado.app.data.entities.RssStar
 import io.legado.app.data.entities.RuleSub
 import io.legado.app.data.entities.SearchKeyword
 import io.legado.app.data.entities.Server
+import io.legado.app.data.entities.TagGroupRule
 import io.legado.app.data.entities.TxtTocRule
 import io.legado.app.data.entities.readRecord.ReadRecord
 import io.legado.app.data.entities.readRecord.ReadRecordDetail
 import io.legado.app.data.entities.readRecord.ReadRecordSession
-import io.legado.app.data.repository.SettingsRepository
 import io.legado.app.help.DirectLinkUpload
 import io.legado.app.help.LauncherIconHelp
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.book.upType
+import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.LocalConfig
+import io.legado.app.help.config.SettingsWriter
 import io.legado.app.help.config.ThemeConfigStore
 import io.legado.app.help.config.ReadBookConfig
+import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.model.BookCover
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.utils.ACache
@@ -43,7 +49,6 @@ import io.legado.app.utils.FileUtils
 import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.compress.ZipUtils
-import io.legado.app.utils.defaultSharedPreferences
 import io.legado.app.utils.fromJsonArray
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isContentScheme
@@ -54,7 +59,7 @@ import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
+import org.koin.core.component.get
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import splitties.init.appCtx
@@ -66,7 +71,6 @@ import java.io.FileInputStream
  */
 object Restore : KoinComponent {
 
-    private val settingsRepository: SettingsRepository by inject()
     private const val TAG = "Restore"
 
     suspend fun restore(context: Context, uri: Uri) {
@@ -132,7 +136,9 @@ object Restore : KoinComponent {
                     newBooks.add(book)
                 }
             }
-            appDb.bookDao.insert(*newBooks.toTypedArray())
+            if (newBooks.isNotEmpty()) {
+                appDb.bookDao.insert(*newBooks.toTypedArray())
+            }
         }
         fileToListT<Bookmark>(path, "bookmark.json")?.let {
             try {
@@ -141,10 +147,7 @@ object Restore : KoinComponent {
             }
         }
         fileToListT<BookGroup>(path, "bookGroup.json")?.let {
-            try {
-                appDb.bookGroupDao.insert(*it.toTypedArray())
-            } catch (_: SQLiteConstraintException) {
-            }
+            appDb.bookGroupDao.replaceAll(it)
         }
         fileToListT<BookSource>(path, "bookSource.json")?.let {
             try {
@@ -212,29 +215,33 @@ object Restore : KoinComponent {
             } catch (_: SQLiteConstraintException) {
             }
         }
+        fileToListT<HomepageModule>(path, "homepageModules.json")?.let {
+            appDb.homepageModuleDao.replaceAll(it)
+        }
+        fileToListT<HomepageCustomSet>(path, "homepageCustomSets.json")?.let {
+            appDb.homepageCustomSetDao.replaceAll(it)
+        }
+        fileToListT<HighlightRule>(path, "highlightRule.json")?.let {
+            appDb.highlightRuleDao.replaceAll(it)
+        }
+        fileToListT<HighlightTagRule>(path, "highlightTagRule.json")?.let {
+            appDb.highlightTagRuleDao.replaceAll(it)
+        }
+        fileToListT<TagGroupRule>(path, "tagGroupRule.json")?.let {
+            appDb.tagGroupRuleDao.replaceAll(it)
+        }
         fileToListT<ReadRecord>(path, "readRecord.json")?.let {
             it.forEach { readRecord ->
-                if (readRecord.deviceId != androidId) {
-                    try {
-                        appDb.readRecordDao.insert(readRecord)
-                    } catch (_: SQLiteConstraintException) {
-                    }
-                } else {
-                    val time = appDb.readRecordDao
-                        .getReadTime(readRecord.deviceId, readRecord.bookName, readRecord.bookAuthor)
-                    if (time == null || time < readRecord.readTime) {
-                        try {
-                            appDb.readRecordDao.insert(readRecord)
-                        } catch (_: SQLiteConstraintException) {
-                        }
-                    }
+                try {
+                    restoreReadRecord(readRecord)
+                } catch (_: SQLiteConstraintException) {
                 }
             }
         }
         fileToListT<ReadRecordDetail>(path, "readRecordDetail.json")?.let {
             it.forEach { detail ->
                 try {
-                    appDb.readRecordDao.insertDetail(detail)
+                    restoreReadRecordDetail(detail)
                 } catch (_: SQLiteConstraintException) {
                 }
             }
@@ -242,7 +249,7 @@ object Restore : KoinComponent {
         fileToListT<ReadRecordSession>(path, "readRecordSession.json")?.let {
             it.forEach { session ->
                 try {
-                    appDb.readRecordDao.insertSession(session)
+                    restoreReadRecordSession(session)
                 } catch (_: SQLiteConstraintException) {
                 }
             }
@@ -328,6 +335,7 @@ object Restore : KoinComponent {
         appCtx.toastOnUi(R.string.restore_success)
         withContext(Main) {
             delay(100)
+            get<AppLocaleGateway>().setLanguage(OtherConfig.language)
             if (!BuildConfig.DEBUG) {
                 LauncherIconHelp.changeIcon(appCtx.getPrefString(PreferKey.launcherIcon))
             }
@@ -335,48 +343,70 @@ object Restore : KoinComponent {
         }
     }
 
-    private suspend fun applyConfigMap(map: Map<String, Any?>, aes: BackupAES) {
-        val finalMap = mutableMapOf<String, Any>()
-        appCtx.defaultSharedPreferences.edit {
-            map.forEach { (key, value) ->
-                if (BackupConfig.keyIsNotIgnore(key)) {
-                    when (key) {
-                        PreferKey.webDavPassword -> {
-                            val password = kotlin.runCatching {
-                                aes.decryptStr(value.toString())
-                            }.getOrNull() ?: let {
-                                if (appCtx.getPrefString(PreferKey.webDavPassword).isNullOrBlank()) {
-                                    value.toString()
-                                } else null
-                            }
-                            password?.let {
-                                putString(key, it)
-                                finalMap[key] = it
-                            }
-                        }
+    private suspend fun restoreReadRecord(readRecord: ReadRecord) {
+        val existing = appDb.readRecordDao.getReadRecord(
+            readRecord.deviceId,
+            readRecord.bookName,
+            readRecord.bookAuthor
+        )
+        appDb.readRecordDao.insert(
+            existing?.copy(
+                readTime = maxOf(existing.readTime, readRecord.readTime),
+                lastRead = maxOf(existing.lastRead, readRecord.lastRead)
+            ) ?: readRecord
+        )
+    }
 
-                        else -> {
-                            if (value != null) {
-                                when (value) {
-                                    is Int -> { putInt(key, value); finalMap[key] = value }
-                                    is Boolean -> { putBoolean(key, value); finalMap[key] = value }
-                                    is Long -> { putLong(key, value); finalMap[key] = value }
-                                    is Double -> { // JSON 数字会被解析为 Double
-                                        val floatValue = value.toFloat()
-                                        putFloat(key, floatValue)
-                                        finalMap[key] = floatValue
-                                    }
-                                    is Float -> { putFloat(key, value); finalMap[key] = value }
-                                    is String -> { putString(key, value); finalMap[key] = value }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    private suspend fun restoreReadRecordDetail(detail: ReadRecordDetail) {
+        val existing = appDb.readRecordDao.getDetail(
+            detail.deviceId,
+            detail.bookName,
+            detail.bookAuthor,
+            detail.date
+        )
+        appDb.readRecordDao.insertDetail(
+            existing?.copy(
+                readTime = maxOf(existing.readTime, detail.readTime),
+                readWords = maxOf(existing.readWords, detail.readWords),
+                firstReadTime = minPositive(existing.firstReadTime, detail.firstReadTime),
+                lastReadTime = maxOf(existing.lastReadTime, detail.lastReadTime)
+            ) ?: detail
+        )
+    }
+
+    private suspend fun restoreReadRecordSession(session: ReadRecordSession) {
+        val existing = appDb.readRecordDao.getSession(
+            session.deviceId,
+            session.bookName,
+            session.bookAuthor,
+            session.startTime,
+            session.endTime
+        )
+        if (existing == null) {
+            appDb.readRecordDao.insertSession(session)
         }
-        // 同步恢复到 DataStore
-        settingsRepository.batchPutFromMap(finalMap)
+    }
+
+    private fun minPositive(left: Long, right: Long): Long {
+        return when {
+            left <= 0L -> right
+            right <= 0L -> left
+            else -> minOf(left, right)
+        }
+    }
+
+    private suspend fun applyConfigMap(map: Map<String, Any?>, aes: BackupAES) {
+        val finalMap = normalizeConfigMap(
+            map = map,
+            keyIsNotIgnore = { BackupConfig.keyIsNotIgnore(it) },
+            decryptWebDavPassword = { runCatching { aes.decryptStr(it) }.getOrNull() },
+            hasLocalWebDavPassword = !appCtx.getPrefString(PreferKey.webDavPassword)
+                .isNullOrBlank(),
+        )
+        // 经快照层批量恢复：立即对读侧生效（onRestoreFinish 的读取不再依赖回灌时机），单次原子 edit 落盘
+        AppConfigStore.putAll(finalMap)
+        // 恢复完成提示前等待落盘，dataStore.edit 返回即持久化完成
+        SettingsWriter.awaitPendingWrites()
     }
 
     private fun readXmlToMap(file: File): Map<String, Any?> {

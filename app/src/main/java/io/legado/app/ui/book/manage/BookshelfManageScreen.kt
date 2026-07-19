@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -59,7 +60,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.constant.IntentAction
-import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
@@ -98,6 +98,7 @@ import io.legado.app.ui.widget.components.log.AppLogSheet
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
+import io.legado.app.ui.widget.components.reorderAccessibility
 import io.legado.app.ui.widget.components.modalBottomSheet.OptionCard
 import io.legado.app.ui.widget.components.modalBottomSheet.OptionSheet
 import io.legado.app.ui.widget.components.progressIndicator.AppCircularProgressIndicator
@@ -295,7 +296,7 @@ private fun BookshelfManageScreen(
         }
         val bookUrl = pendingExportBookUrl ?: return@rememberLauncherForActivityResult
         val book = booksByUrl[bookUrl] ?: return@rememberLauncherForActivityResult
-        if (state.exportConfig.enableCustomExport) {
+        if (state.exportConfig.isCustomEpubExportEnabled) {
             customExportPath = dirPath
             customExportBook = book
             customExportAllChapter = false
@@ -336,7 +337,7 @@ private fun BookshelfManageScreen(
         val path = ACache.get().getAsString(exportBookPathKey)
         if (path.isNullOrEmpty() || !FileDoc.fromDir(path).checkWrite()) {
             selectExportFolder(book.bookUrl)
-        } else if (state.exportConfig.enableCustomExport) {
+        } else if (state.exportConfig.isCustomEpubExportEnabled) {
             customExportPath = path
             customExportBook = book
             customExportAllChapter = false
@@ -478,7 +479,7 @@ private fun BookshelfManageScreen(
                 TopBarActionButton(
                     onClick = { showGroupMenu = true },
                     imageVector = AppIcons.Filter,
-                    contentDescription = null
+                    contentDescription = stringResource(R.string.a11y_group_filter)
                 )
                 RoundDropdownMenu(
                     expanded = showGroupMenu,
@@ -656,7 +657,7 @@ private fun BookshelfManageScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(filteredBooks, key = { it.bookUrl }) { book ->
+            itemsIndexed(filteredBooks, key = { _, item -> item.bookUrl }) { index, book ->
                 val cacheCount = remember(renderVersion, book.bookUrl) {
                     viewModel.getCacheCount(book.bookUrl) ?: 0
                 }
@@ -687,6 +688,15 @@ private fun BookshelfManageScreen(
                     GlassCard(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .reorderAccessibility(
+                                index = index,
+                                itemCount = filteredBooks.size,
+                                enabled = canReorderBooks,
+                            ) { from, to ->
+                                viewModel.dispatch(
+                                    BookshelfManageScreenIntent.MoveBookOrder(from, to)
+                                )
+                            }
                             .then(
                                 if (canReorderBooks) {
                                     Modifier.longPressDraggableHandle()
@@ -801,12 +811,12 @@ private fun BookshelfManageScreen(
                                             }
                                         },
                                         icon = if (isDownloading) Icons.Default.Stop else Icons.Default.Download,
-                                        contentDescription = "download"
+                                        contentDescription = stringResource(R.string.action_download)
                                     )
                                     SmallTonalButton(
                                         onClick = { exportBook(book) },
                                         icon = Icons.Default.Upload,
-                                        contentDescription = "upload"
+                                        contentDescription = stringResource(R.string.upload_to_remote)
                                     )
                                     SmallTonalButton(
                                         onClick = {
@@ -815,12 +825,12 @@ private fun BookshelfManageScreen(
                                             showGroupSelectSheet = true
                                         },
                                         icon = Icons.Default.Bookmarks,
-                                        contentDescription = "group"
+                                        contentDescription = stringResource(R.string.group)
                                     )
                                     SmallTonalButton(
                                         onClick = { moreMenuBookUrl = book.bookUrl },
                                         icon = Icons.Default.MoreVert,
-                                        contentDescription = "more"
+                                        contentDescription = stringResource(R.string.more_menu)
                                     )
                                 }
                             }
@@ -854,6 +864,7 @@ private fun BookshelfManageScreen(
     BookSourcePickerSheet(
         show = showBatchSourcePickerSheet,
         title = "选择目标书源",
+        sources = state.bookSources,
         onDismissRequest = { showBatchSourcePickerSheet = false },
         onConfirm = { sources ->
             pendingBatchSources = sources
@@ -1277,11 +1288,10 @@ private fun BookshelfManageScreen(
 private fun BookSourcePickerSheet(
     show: Boolean,
     title: String,
+    sources: List<BookSourcePart>,
     onDismissRequest: () -> Unit,
     onConfirm: (List<BookSource>) -> Unit,
 ) {
-    val sources by appDb.bookSourceDao.flowEnabled()
-        .collectAsStateWithLifecycle(initialValue = emptyList())
     var searchKey by rememberSaveable(show) { mutableStateOf("") }
     var selectedSources by remember(show) { mutableStateOf<List<BookSourcePart>>(emptyList()) }
     val selectedUrls = remember(selectedSources) {
@@ -1349,6 +1359,13 @@ private fun BookSourcePickerSheet(
                     ReorderableSelectionItem(
                         state = reorderableState,
                         key = source.bookSourceUrl,
+                        reorderIndex = selectedSources.indexOf(source),
+                        reorderItemCount = selectedSources.size,
+                        onMoveItem = { from, to ->
+                            selectedSources = selectedSources.toMutableList().apply {
+                                move(from, to)
+                            }
+                        },
                         title = source.bookSourceName,
                         subtitle = source.bookSourceGroup,
                         isSelected = true,
@@ -1526,7 +1543,8 @@ private fun BatchChangePreviewRow(
             ) {
                 SmallTonalButton(
                     onClick = { onManualSearch(item.oldBook) },
-                    icon = Icons.Default.Search
+                    icon = Icons.Default.Search,
+                    contentDescription = stringResource(R.string.search)
                 )
                 SmallTonalButton(
                     onClick = { onSkip(item.oldBook.bookUrl) },
@@ -1634,7 +1652,7 @@ private fun OtherSourceOptionsSheet(
                         SmallTonalButton(
                             onClick = { onOpenBook(candidate.book) },
                             icon = Icons.Default.Info,
-                            contentDescription = null,
+                            contentDescription = stringResource(R.string.details),
                         )
                     },
                     containerColor = LegadoTheme.colorScheme.onSheetContent,

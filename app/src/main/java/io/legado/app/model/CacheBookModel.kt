@@ -4,7 +4,9 @@ import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
+import io.legado.app.help.book.isImage
 import io.legado.app.exception.ConcurrentException
+import io.legado.app.help.book.BookHelp
 import io.legado.app.help.coroutine.CompositeCoroutine
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.model.cache.CacheDownloadCandidate
@@ -12,6 +14,8 @@ import io.legado.app.model.cache.CacheDownloadQueue
 import io.legado.app.model.cache.CacheDownloadRepository
 import io.legado.app.model.cache.CacheDownloadRequest
 import io.legado.app.model.cache.CacheDownloadSource
+import io.legado.app.model.cache.CacheChapterProgress
+import io.legado.app.model.cache.CacheChapterProgressPhase
 import io.legado.app.model.cache.CacheDownloadStateStore
 import io.legado.app.model.cache.ChapterSelection
 import kotlinx.coroutines.CancellationException
@@ -58,7 +62,7 @@ class CacheBookModel(
     private val onDownloadSet = linkedSetOf<Int>()
     private val canceledDownloadSet = hashSetOf<Int>()
     private val pausedChapterSet = linkedSetOf<Int>()
-    private val pendingReadRequestMap = hashMapOf<Int, Boolean>()
+    private val pendingReadRequestMap = hashMapOf<Int, PendingReadRequest>()
     private val chapterTasks = hashMapOf<Int, Coroutine<*>>()
     private val tasks = CompositeCoroutine()
     private val repository = CacheDownloadRepository()
@@ -423,6 +427,7 @@ class CacheBookModel(
         }
 
         if (repository.hasContent(book, chapter)) {
+            reportImageDownloadProgress(chapter, completed = 0)
             val task = repository.saveCachedImagesTask(
                 scope = scope,
                 context = context,
@@ -430,8 +435,11 @@ class CacheBookModel(
                 book = book,
                 chapter = chapter,
                 start = CoroutineStart.LAZY,
+                onProgress = { completed, total ->
+                    reportImageDownloadProgress(chapter, completed, total)
+                },
             )
-            if (!attachTaskIfActive(task, chapter, chapterIndex)) {
+            if (!attachTaskIfActive(task, chapter, chapterIndex, scope, context)) {
                 task.cancel()
                 return
             }
@@ -439,6 +447,7 @@ class CacheBookModel(
             return
         }
 
+        reportContentDownloadProgress(chapterIndex)
         val task = repository.cacheContentTask(
             scope = scope,
             bookSource = bookSource,
@@ -448,7 +457,7 @@ class CacheBookModel(
             start = CoroutineStart.LAZY,
             executeContext = context,
         )
-        if (!attachTaskIfActive(task, chapter, chapterIndex)) {
+        if (!attachTaskIfActive(task, chapter, chapterIndex, scope, context, chainImagesAfterContent = true)) {
             task.cancel()
             return
         }
@@ -494,6 +503,9 @@ class CacheBookModel(
         task: Coroutine<T>,
         chapter: BookChapter,
         chapterIndex: Int,
+        scope: CoroutineScope,
+        context: CoroutineContext,
+        chainImagesAfterContent: Boolean = false,
     ): Boolean {
         if (isStopped || isPaused || !onDownloadSet.contains(chapterIndex)) {
             if (!isStopped && isPaused && onDownloadSet.remove(chapterIndex)) {
@@ -503,7 +515,7 @@ class CacheBookModel(
             }
             return false
         }
-        attachCallbacks(task, chapter, chapterIndex)
+        attachCallbacks(task, chapter, chapterIndex, scope, context, chainImagesAfterContent)
         chapterTasks[chapterIndex] = task
         tasks.add(task)
         return true
@@ -513,12 +525,17 @@ class CacheBookModel(
         task: Coroutine<T>,
         chapter: BookChapter,
         chapterIndex: Int,
+        scope: CoroutineScope,
+        context: CoroutineContext,
+        chainImagesAfterContent: Boolean = false,
+        content: String? = null,
     ) {
         task.onSuccess(IO) {
-            onSuccess(chapter)
-            (it as? String)?.let { content ->
-                emitPendingReadContent(chapter, content)
+            if (chainImagesAfterContent && book.isImage && !repository.hasImageContent(book, chapter)) {
+                startImageCacheTask(scope, context, chapter, chapterIndex, it as String)
+                return@onSuccess
             }
+            completeChapterCache(chapter, content ?: (it as? String))
         }.onError(IO) {
             onPreError(chapter, it)
             try {
@@ -531,9 +548,87 @@ class CacheBookModel(
             onCancel(chapterIndex)
             emitPendingReadCanceled(chapter)
         }.onFinally(IO) {
-            chapterTasks.remove(chapterIndex)?.let { tasks.delete(it) }
+            if (chapterTasks[chapterIndex] === task) {
+                chapterTasks.remove(chapterIndex)
+                tasks.delete(task)
+            }
             onFinally()
         }
+    }
+
+    private fun completeChapterCache(chapter: BookChapter, content: String?) {
+        onSuccess(chapter)
+        content?.let { emitPendingReadContent(chapter, it) }
+    }
+
+    @Synchronized
+    private fun startImageCacheTask(
+        scope: CoroutineScope,
+        context: CoroutineContext,
+        chapter: BookChapter,
+        chapterIndex: Int,
+        content: String,
+    ) {
+        if (isStopped || isPaused || !onDownloadSet.contains(chapterIndex)) {
+            if (!isStopped && isPaused && onDownloadSet.remove(chapterIndex)) {
+                queue.enqueue(ChapterSelection.Single(chapterIndex))
+            } else {
+                onDownloadSet.remove(chapterIndex)
+            }
+            host.stateStore.clearChapterProgress(book.bookUrl, chapterIndex)
+            notifyDownloadSetChanged()
+            host.onTaskQueuesChanged(book.bookUrl)
+            return
+        }
+        reportImageDownloadProgress(chapter, completed = 0)
+        val imageTask = repository.saveCachedImagesTask(
+            scope = scope,
+            context = context,
+            bookSource = bookSource,
+            book = book,
+            chapter = chapter,
+            start = CoroutineStart.LAZY,
+            onProgress = { completed, total ->
+                reportImageDownloadProgress(chapter, completed, total)
+            },
+        )
+        attachCallbacks(imageTask, chapter, chapterIndex, scope, context, content = content)
+        chapterTasks[chapterIndex] = imageTask
+        tasks.add(imageTask)
+        imageTask.start()
+    }
+
+    private fun reportContentDownloadProgress(chapterIndex: Int) {
+        host.stateStore.updateChapterProgress(
+            book.bookUrl,
+            chapterIndex,
+            CacheChapterProgress(
+                phase = CacheChapterProgressPhase.CONTENT,
+                completed = 0,
+                total = 1,
+            ),
+        )
+    }
+
+    private fun reportImageDownloadProgress(
+        chapter: BookChapter,
+        completed: Int,
+        total: Int = imageCountInChapter(chapter),
+    ) {
+        host.stateStore.updateChapterProgress(
+            book.bookUrl,
+            chapter.index,
+            CacheChapterProgress(
+                phase = CacheChapterProgressPhase.IMAGES,
+                completed = completed,
+                total = total,
+            ),
+        )
+    }
+
+    private fun imageCountInChapter(chapter: BookChapter): Int {
+        val content = BookHelp.getContent(book, chapter) ?: return 0
+        return BookHelp.countImagesInContent(chapter, content)
     }
 
     suspend fun downloadAwait(chapter: BookChapter): String {
@@ -544,6 +639,16 @@ class CacheBookModel(
         }
         try {
             val content = repository.downloadContentAwait(bookSource, book, chapter)
+            if (book.isImage && !repository.hasImageContent(book, chapter)) {
+                repository.saveCachedImagesAwait(
+                    bookSource = bookSource,
+                    book = book,
+                    chapter = chapter,
+                    onProgress = { completed, total ->
+                        reportImageDownloadProgress(chapter, completed, total)
+                    },
+                )
+            }
             onSuccess(chapter)
             ReadBook.downloadedChapters.add(chapter.index)
             ReadBook.downloadFailChapters.remove(chapter.index)
@@ -566,7 +671,8 @@ class CacheBookModel(
         scope: CoroutineScope,
         chapter: BookChapter,
         semaphore: Semaphore?,
-        resetPageOffset: Boolean = false
+        resetPageOffset: Boolean = false,
+        preserveReadAloudPosition: Boolean = false,
     ): Boolean {
         if (!markChapterDownloadStarted(chapter.index)) {
             // Chapter is already in onDownloadSet. Check if the task is actually alive.
@@ -581,11 +687,19 @@ class CacheBookModel(
                 }
                 notifyDownloadSetChanged()
                 if (!markChapterDownloadStarted(chapter.index)) {
-                    markPendingReadRequest(chapter.index, resetPageOffset)
+                    markPendingReadRequest(
+                        chapter.index,
+                        resetPageOffset,
+                        preserveReadAloudPosition,
+                    )
                     return false
                 }
             } else {
-                markPendingReadRequest(chapter.index, resetPageOffset)
+                markPendingReadRequest(
+                    chapter.index,
+                    resetPageOffset,
+                    preserveReadAloudPosition,
+                )
                 return true
             }
         }
@@ -599,20 +713,41 @@ class CacheBookModel(
             executeContext = IO,
             semaphore = semaphore
         ).timeout(DOWNLOAD_TIMEOUT_MS).onSuccess { content ->
+            if (book.isImage && !repository.hasImageContent(book, chapter)) {
+                Coroutine.async(scope, IO) {
+                    repository.saveCachedImagesAwait(bookSource, book, chapter)
+                }.start()
+            }
             onSuccess(chapter)
             ReadBook.downloadedChapters.add(chapter.index)
             ReadBook.downloadFailChapters.remove(chapter.index)
-            downloadFinish(chapter, content, resetPageOffset)
+            downloadFinish(
+                chapter,
+                content,
+                resetPageOffset,
+                preserveReadAloudPosition = preserveReadAloudPosition,
+            )
             emitPendingReadContent(chapter, content)
         }.onError {
             onError(chapter, it)
             ReadBook.downloadFailChapters[chapter.index] =
                 (ReadBook.downloadFailChapters[chapter.index] ?: 0) + 1
-            downloadFinish(chapter, "获取正文失败\n${it.localizedMessage}", resetPageOffset)
+            downloadFinish(
+                chapter,
+                "获取正文失败\n${it.localizedMessage}",
+                resetPageOffset,
+                preserveReadAloudPosition = preserveReadAloudPosition,
+            )
             emitPendingReadError(chapter, it)
         }.onCancel {
             onCancel(chapter.index, requeue = false)
-            downloadFinish(chapter, "download canceled", resetPageOffset, true)
+            downloadFinish(
+                chapter,
+                "download canceled",
+                resetPageOffset,
+                canceled = true,
+                preserveReadAloudPosition = preserveReadAloudPosition,
+            )
         }.onFinally {
             chapterTasks.remove(chapter.index)
             host.onTaskQueuesChanged(book.bookUrl)
@@ -634,35 +769,59 @@ class CacheBookModel(
     }
 
     @Synchronized
-    private fun markPendingReadRequest(index: Int, resetPageOffset: Boolean) {
-        pendingReadRequestMap[index] = pendingReadRequestMap[index] == true || resetPageOffset
+    private fun markPendingReadRequest(
+        index: Int,
+        resetPageOffset: Boolean,
+        preserveReadAloudPosition: Boolean,
+    ) {
+        pendingReadRequestMap[index] = mergePendingReadRequest(
+            previous = pendingReadRequestMap[index],
+            resetPageOffset = resetPageOffset,
+            preserveReadAloudPosition = preserveReadAloudPosition,
+        )
     }
 
     @Synchronized
-    private fun consumePendingReadRequest(index: Int): Boolean? {
+    private fun consumePendingReadRequest(index: Int): PendingReadRequest? {
         return pendingReadRequestMap.remove(index)
     }
 
     private fun emitPendingReadContent(chapter: BookChapter, content: String) {
-        val resetPageOffset = consumePendingReadRequest(chapter.index) ?: return
-        downloadFinish(chapter, content, resetPageOffset)
+        val request = consumePendingReadRequest(chapter.index) ?: return
+        downloadFinish(
+            chapter,
+            content,
+            request.resetPageOffset,
+            preserveReadAloudPosition = request.preserveReadAloudPosition,
+        )
     }
 
     private fun emitPendingReadError(chapter: BookChapter, error: Throwable) {
-        val resetPageOffset = consumePendingReadRequest(chapter.index) ?: return
-        downloadFinish(chapter, "获取正文失败\n${error.localizedMessage}", resetPageOffset)
+        val request = consumePendingReadRequest(chapter.index) ?: return
+        downloadFinish(
+            chapter,
+            "获取正文失败\n${error.localizedMessage}",
+            request.resetPageOffset,
+            preserveReadAloudPosition = request.preserveReadAloudPosition,
+        )
     }
 
     private fun emitPendingReadCanceled(chapter: BookChapter) {
-        val resetPageOffset = consumePendingReadRequest(chapter.index) ?: return
-        downloadFinish(chapter, "download canceled", resetPageOffset)
+        val request = consumePendingReadRequest(chapter.index) ?: return
+        downloadFinish(
+            chapter,
+            "download canceled",
+            request.resetPageOffset,
+            preserveReadAloudPosition = request.preserveReadAloudPosition,
+        )
     }
 
     private fun downloadFinish(
         chapter: BookChapter,
         content: String,
         resetPageOffset: Boolean = false,
-        canceled: Boolean = false
+        canceled: Boolean = false,
+        preserveReadAloudPosition: Boolean = false,
     ) {
         if (ReadBook.book?.bookUrl == book.bookUrl) {
             ReadBook.contentLoadFinish(
@@ -671,7 +830,23 @@ class CacheBookModel(
                 content = content,
                 resetPageOffset = resetPageOffset,
                 canceled = canceled,
+                preserveReadAloudPosition = preserveReadAloudPosition,
             )
         }
     }
 }
+
+internal data class PendingReadRequest(
+    val resetPageOffset: Boolean,
+    val preserveReadAloudPosition: Boolean,
+)
+
+internal fun mergePendingReadRequest(
+    previous: PendingReadRequest?,
+    resetPageOffset: Boolean,
+    preserveReadAloudPosition: Boolean,
+): PendingReadRequest = PendingReadRequest(
+    resetPageOffset = previous?.resetPageOffset == true || resetPageOffset,
+    preserveReadAloudPosition =
+        (previous?.preserveReadAloudPosition ?: true) && preserveReadAloudPosition,
+)

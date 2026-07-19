@@ -4,26 +4,21 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.os.Handler
-import android.os.Looper
 import android.util.AttributeSet
 import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import androidx.preference.PreferenceViewHolder
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.card.MaterialCardView
 import io.legado.app.R
-import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
-import io.legado.app.lib.dialogs.alert
 import io.legado.app.ui.config.themeConfig.ThemeConfig
 import io.legado.app.utils.getPrefString
-import io.legado.app.utils.postEvent
-import io.legado.app.utils.restart
 import io.legado.app.utils.toastOnUi
 import splitties.init.appCtx
 
@@ -66,6 +61,7 @@ class ThemeCardPreference(context: Context, attrs: AttributeSet) : Preference(co
 
             holder.label.text = label
             holder.card.isChecked = (value == currentValue)
+            holder.card.contentDescription = label
 
             val colors = getThemeColors(value)
             holder.colorTop.setCardBackgroundColor(colors[0])
@@ -78,6 +74,10 @@ class ThemeCardPreference(context: Context, attrs: AttributeSet) : Preference(co
             val isSelected = (value == currentValue)
             holder.background.strokeColor = if (isSelected) colors[4] else colors[7]
             holder.card.checkedIconTint = ColorStateList.valueOf(colors[2])
+            ViewCompat.setStateDescription(
+                holder.card,
+                context.getString(if (isSelected) R.string.a11y_selected else R.string.a11y_not_selected)
+            )
 
 
             holder.card.setOnClickListener {
@@ -92,29 +92,11 @@ class ThemeCardPreference(context: Context, attrs: AttributeSet) : Preference(co
                             ThemeConfig.containerOpacity = 0
                         }
                     }
-                    val oldValue = currentValue
                     currentValue = value
                     persistString(value)
                     callChangeListener(value)
                     ThemeConfig.appTheme = value
                     notifyDataSetChanged()
-                    val isDynamicSwitch = (oldValue == "12" || value == "12")
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        if (isDynamicSwitch) {
-                            context.alert(context.getString(R.string.restart_required_message)) {
-                                okButton {
-                                    Handler(Looper.getMainLooper()).postDelayed({
-                                        context.restart()
-                                    }, 100)
-                                }
-                                cancelButton {
-                                    context.toastOnUi(R.string.restart_later_message)
-                                }
-                            }
-                        } else {
-                            postEvent(EventBus.RECREATE, "")
-                        }
-                    }, 100)
                 }
             }
         }
@@ -172,5 +154,3 @@ class ThemeCardPreference(context: Context, attrs: AttributeSet) : Preference(co
         val background : MaterialCardView = view.findViewById(R.id.cardView)
     }
 }
-
-

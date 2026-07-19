@@ -36,13 +36,13 @@ fun CrashLogSheet(
         onDismissRequest = onDismissRequest,
         endAction = {
             IconButton(onClick = onClear) {
-                Icon(Icons.Default.DeleteSweep, contentDescription = "Clear")
+                Icon(Icons.Default.DeleteSweep, contentDescription = stringResource(R.string.clear))
             }
         },
         title = stringResource(R.string.crash_log),
     ) {
         if (logFiles.isEmpty()) {
-            EmptyMessage(message = "暂无崩溃日志")
+            EmptyMessage(message = stringResource(R.string.no_crash_logs))
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),

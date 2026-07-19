@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,12 +37,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.domain.usecase.ChangeSourceMigrationOptions
 import io.legado.app.ui.book.changesource.ChangeBookSourceComposeViewModel
+import io.legado.app.ui.book.changesource.ChangeBookSourceEffect
 import io.legado.app.ui.book.changesource.ChangeSourceConfig
 import io.legado.app.ui.book.changesource.ChangeSourceMigrationOptionsSheet
 import io.legado.app.ui.book.search.ScopeSelectSheet
@@ -62,7 +65,16 @@ import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.StartActivityContract
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.toastOnUi
+import kotlinx.coroutines.flow.collectLatest
 import org.koin.androidx.compose.koinViewModel
+
+@Stable
+private data class PendingShelfConflict(
+    val existingBook: Book,
+    val source: BookSource,
+    val newBook: Book,
+    val toc: List<BookChapter>,
+)
 
 @Composable
 fun ChangeSourceSheet(
@@ -75,6 +87,13 @@ fun ChangeSourceSheet(
     onReplace: (BookSource, Book, List<BookChapter>, ChangeSourceMigrationOptions) -> Unit,
     onReplaceBook: ((Book) -> Unit)? = null,
     onAddAsNew: (Book, List<BookChapter>) -> Unit,
+    onReplaceConflict: ((
+        Book,
+        BookSource,
+        Book,
+        List<BookChapter>,
+        ChangeSourceMigrationOptions,
+    ) -> Unit)? = null,
     viewModel: ChangeBookSourceComposeViewModel = koinViewModel(key = "source-${oldBook.bookUrl}"),
 ) {
     val context = LocalContext.current
@@ -85,6 +104,7 @@ fun ChangeSourceSheet(
     val groups by viewModel.enabledGroups.collectAsStateWithLifecycle(initialValue = emptyList<String>())
     val enabledSources by viewModel.enabledSources.collectAsStateWithLifecycle(initialValue = emptyList<io.legado.app.data.entities.BookSourcePart>())
     val scopeState by viewModel.scopeUiState.collectAsStateWithLifecycle()
+    val emptyScopeName by viewModel.emptyScopeName.collectAsStateWithLifecycle()
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val checkAuthor = viewModel.checkAuthor
     val loadInfo = viewModel.loadInfo
@@ -92,6 +112,7 @@ fun ChangeSourceSheet(
     val loadWordCount = viewModel.loadWordCount
     var actionBook by remember { mutableStateOf<SearchBook?>(null) }
     var mismatchBook by remember { mutableStateOf<SearchBook?>(null) }
+    var shelfConflict by remember { mutableStateOf<PendingShelfConflict?>(null) }
     var showMigrationOptions by remember { mutableStateOf(false) }
     var loadingAction by remember { mutableStateOf(false) }
     var showOptionsMenu by rememberSaveable { mutableStateOf(false) }
@@ -105,6 +126,16 @@ fun ChangeSourceSheet(
 
     LaunchedEffect(oldBook.bookUrl, fromReadBookActivity) {
         viewModel.initData(oldBook.name, oldBook.author, oldBook, fromReadBookActivity)
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collectLatest { effect ->
+            when (effect) {
+                is ChangeBookSourceEffect.ShowMessage -> context.toastOnUi(effect.message)
+                is ChangeBookSourceEffect.ShowMessageResource ->
+                    context.toastOnUi(context.getString(effect.messageRes))
+            }
+        }
     }
 
     DisposableEffect(lifecycleOwner, viewModel) {
@@ -144,20 +175,38 @@ fun ChangeSourceSheet(
         viewModel.getToc(
             book,
             onSuccess = { toc, source ->
-                loadingAction = false
                 if (replace) {
+                    loadingAction = false
                     onReplace(source, book, toc, ChangeSourceConfig.getMigrationOptions())
                     if (!dismissBeforeLoading) {
                         onDismissRequest()
                     }
+                } else if (onReplaceConflict != null) {
+                    viewModel.findShelfConflict(book) { existingBook ->
+                        loadingAction = false
+                        if (existingBook == null) {
+                            onAddAsNew(book, toc)
+                            context.toastOnUi(bookAddedToShelfText)
+                        } else {
+                            shelfConflict = PendingShelfConflict(
+                                existingBook = existingBook,
+                                source = source,
+                                newBook = book,
+                                toc = toc,
+                            )
+                        }
+                        actionBook = null
+                    }
                 } else {
+                    loadingAction = false
                     onAddAsNew(book, toc)
                     context.toastOnUi(bookAddedToShelfText)
+                    actionBook = null
                 }
-                actionBook = null
             },
             onError = {
                 loadingAction = false
+                AppLog.put("${if (replace) "换源" else "添加书籍"}获取目录出错\n${it.localizedMessage}", it, true)
                 context.toastOnUi(if (replace) "换源失败" else "添加书籍失败")
             }
         )
@@ -172,7 +221,8 @@ fun ChangeSourceSheet(
                 Box {
                     MediumPlainButton(
                         onClick = { showOptionsMenu = true },
-                        icon = Icons.Default.MoreVert
+                icon = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.more_menu)
                     )
                     RoundDropdownMenu(
                         expanded = showOptionsMenu,
@@ -221,7 +271,8 @@ fun ChangeSourceSheet(
                 }
                 MediumPlainButton(
                     onClick = { showMigrationOptions = true },
-                    icon = Icons.Outlined.Settings
+                    icon = Icons.Outlined.Settings,
+                    contentDescription = stringResource(R.string.setting)
                 )
             }
         },
@@ -230,10 +281,12 @@ fun ChangeSourceSheet(
                 MediumPlainButton(
                     onClick = { viewModel.startOrStopSearch() },
                     icon = if (isSearching) Icons.Default.PauseCircleOutline else Icons.Default.Refresh,
+                    contentDescription = stringResource(if (isSearching) R.string.pause else R.string.refresh),
                 )
                 MediumPlainButton(
                     onClick = { showFilterSheet = true },
-                    icon = Icons.Default.FilterList
+                    icon = Icons.Default.FilterList,
+                    contentDescription = stringResource(R.string.screen)
                 )
             }
         }
@@ -290,7 +343,7 @@ fun ChangeSourceSheet(
                                 },
                                 icon = Icons.Default.PushPin,
                                 tint = if (bookScore > 0) LegadoTheme.colorScheme.primary else LegadoTheme.colorScheme.outline,
-                                contentDescription = null
+                                contentDescription = stringResource(R.string.a11y_pin_source)
                             )
                         },
                         supportingContent = {
@@ -407,6 +460,92 @@ fun ChangeSourceSheet(
             onConfirm = { performAction(it, true) }
         )
     }
+    AppAlertDialog(
+        data = shelfConflict,
+        onDismissRequest = { shelfConflict = null },
+        title = stringResource(R.string.bookshelf_book_conflict_title),
+        text = stringResource(R.string.bookshelf_book_conflict_message),
+        confirmText = stringResource(R.string.replace_current_book),
+        onConfirm = { conflict ->
+            shelfConflict = null
+            onReplaceConflict?.invoke(
+                conflict.existingBook,
+                conflict.source,
+                conflict.newBook,
+                conflict.toc,
+                ChangeSourceConfig.getMigrationOptions(),
+            )
+            onDismissRequest()
+        },
+        dismissText = stringResource(R.string.add_as_new_book),
+        onDismiss = {
+            shelfConflict?.let { conflict ->
+                onAddAsNew(conflict.newBook, conflict.toc)
+                context.toastOnUi(bookAddedToShelfText)
+            }
+            shelfConflict = null
+        },
+        content = { conflict ->
+            val existingSource = conflict.existingBook.originName.ifBlank {
+                conflict.existingBook.origin
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                AppText(
+                    text = "${stringResource(R.string.book_name)}：${conflict.existingBook.name}",
+                    style = LegadoTheme.typography.bodyMedium,
+                )
+                AppText(
+                    text = "${stringResource(R.string.author)}：${conflict.existingBook.author}",
+                    style = LegadoTheme.typography.bodyMedium,
+                )
+                AppText(
+                    text = stringResource(R.string.existing_book_source, existingSource),
+                    style = LegadoTheme.typography.bodyMedium,
+                )
+                AppText(
+                    text = stringResource(
+                        R.string.all_chapter_num,
+                        conflict.existingBook.totalChapterNum,
+                    ),
+                    style = LegadoTheme.typography.bodyMedium,
+                )
+                AppText(
+                    text = stringResource(
+                        R.string.latest_chapter_info,
+                        conflict.existingBook.latestChapterTitle
+                            ?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.no_last_chapter),
+                    ),
+                    style = LegadoTheme.typography.bodyMedium,
+                )
+                AppText(
+                    text = stringResource(
+                        R.string.new_book_source,
+                        conflict.source.bookSourceName.ifBlank {
+                            conflict.source.bookSourceUrl
+                        },
+                    ),
+                    style = LegadoTheme.typography.bodyMedium,
+                    color = LegadoTheme.colorScheme.primary,
+                )
+            }
+        },
+    )
+    AppAlertDialog(
+        data = emptyScopeName,
+        onDismissRequest = viewModel::dismissEmptyScopeSearch,
+        title = stringResource(R.string.draw),
+        textProvider = {
+            stringResource(
+                R.string.search_empty_scope_switch_all,
+                emptyScopeName.orEmpty(),
+            )
+        },
+        confirmText = stringResource(R.string.ok),
+        onConfirm = { viewModel.confirmEmptyScopeSearch() },
+        dismissText = stringResource(R.string.cancel),
+        onDismiss = viewModel::dismissEmptyScopeSearch,
+    )
     AppAlertDialog(
         show = loadingAction,
         onDismissRequest = {},

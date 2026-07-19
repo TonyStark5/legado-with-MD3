@@ -46,6 +46,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -74,6 +82,9 @@ fun TinySettingItem(
     onExpandChange: ((Boolean) -> Unit)? = null,
     expandContent: (@Composable ColumnScope.() -> Unit)? = null,
     enabled: Boolean = true,
+    semanticRole: Role? = null,
+    semanticStateDescription: String? = null,
+    semanticToggleState: Boolean? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -93,7 +104,15 @@ fun TinySettingItem(
         modifier = modifier
             .padding(bottom = 4.dp)
             .heightIn(min = 56.dp)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                semanticRole?.let { role = it }
+                semanticStateDescription?.let { stateDescription = it }
+                semanticToggleState?.let {
+                    toggleableState = if (it) ToggleableState.On else ToggleableState.Off
+                }
+                if (!enabled) disabled()
+            },
         cornerRadius = 12.dp,
         containerColor = color?.copy(alpha = alpha),
         contentColor = LegadoTheme.colorScheme.onSurface.copy(alpha = alpha),
@@ -243,6 +262,9 @@ fun TinySliderSettingItem(
     modifier: Modifier = Modifier,
     color: Color? = LegadoTheme.colorScheme.surfaceContainerLow,
     enabled: Boolean = true,
+    stepSize: Float = 1f,
+    showDecimal: Boolean = false,
+    valueFormat: ((Float) -> String)? = null,
     onValueChange: (Float) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -265,6 +287,9 @@ fun TinySliderSettingItem(
                 valueRange = valueRange,
                 onValueChange = onValueChange,
                 enabled = enabled,
+                stepSize = stepSize,
+                showDecimal = showDecimal,
+                valueFormat = valueFormat,
             )
         },
         expandContent = {
@@ -281,6 +306,8 @@ fun TinySliderSettingItem(
                 steps = steps,
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth(),
+                accessibilityLabel = title,
+                accessibilityValue = description ?: displayValue.toString(),
             )
         },
     )
@@ -311,11 +338,15 @@ fun TinySwitchSettingItem(
         modifier = modifier,
         color = color,
         enabled = enabled,
+        semanticRole = Role.Switch,
+        semanticToggleState = checked,
         trailingContent = {
             TinySwitch(
+                modifier = Modifier.clearAndSetSemantics { },
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 enabled = enabled,
+                includeStateSemantics = false,
             )
         },
         onClick = { onCheckedChange(!checked) },
@@ -492,9 +523,10 @@ private fun ColorModePill(
                 .offset { IntOffset(x = knobOffset.roundToPx(), y = 0) }
                 .size(knobSize)
                 .clip(CircleShape)
-                .background(
-                    if (currentColor != 0) Color(currentColor)
-                    else LegadoTheme.colorScheme.surfaceContainerLow
+                .background(LegadoTheme.colorScheme.surfaceContainerLow)
+                .then(
+                    if (currentColor != 0) Modifier.background(Color(currentColor))
+                    else Modifier
                 )
                 .clickable(
                     enabled = enabled,

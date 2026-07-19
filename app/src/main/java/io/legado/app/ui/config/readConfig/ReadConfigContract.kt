@@ -1,5 +1,8 @@
 package io.legado.app.ui.config.readConfig
 
+import androidx.compose.runtime.Stable
+
+@Stable
 data class ReadConfigUiState(
     val screenOrientation: String = "0",
     val keepLight: String = "0",
@@ -29,6 +32,7 @@ data class ReadConfigUiState(
     val sliderVibrator: Boolean = false,
     val selectVibrator: Boolean = false,
     val autoChangeSource: Boolean = true,
+    val autoSuggestDayNight: Boolean = false,
     val selectText: Boolean = true,
     val noAnimScrollPage: Boolean = false,
     val clickImgWay: String = "2",
@@ -36,15 +40,23 @@ data class ReadConfigUiState(
     val disableReturnKey: Boolean = false,
     val expandTextMenu: Boolean = false,
     val showSelectMenuIcon: Boolean = true,
-    val textSelectMenuFilter: String = "",
     val showReadTitleAddition: Boolean = true,
     val autoReadSpeed: Int = 10,
     val prevKeys: String = "",
     val nextKeys: String = "",
-    val showMenuIcon: Boolean = true
+    val showMenuIcon: Boolean = true,
+    val activeSheet: ReadConfigSheet? = null,
 )
 
+sealed interface ReadConfigSheet {
+    data object PageKeys : ReadConfigSheet
+    data object ClickActions : ReadConfigSheet
+}
+
 sealed interface ReadConfigIntent {
+    data object OpenPageKeys : ReadConfigIntent
+    data object OpenClickActions : ReadConfigIntent
+    data object DismissSheet : ReadConfigIntent
     data class ScreenOrientationChanged(val value: String) : ReadConfigIntent
     data class KeepLightChanged(val value: String) : ReadConfigIntent
     data class HideStatusBarChanged(val value: Boolean) : ReadConfigIntent
@@ -77,10 +89,12 @@ sealed interface ReadConfigIntent {
     data class ClickImgWayChanged(val value: String) : ReadConfigIntent
     data class OptimizeRenderChanged(val value: Boolean) : ReadConfigIntent
     data class DisableReturnKeyChanged(val value: Boolean) : ReadConfigIntent
-    data class ExpandTextMenuChanged(val value: Boolean) : ReadConfigIntent
-    data class ShowSelectMenuIconChanged(val value: Boolean) : ReadConfigIntent
-    data class TextSelectMenuFilterChanged(val value: String) : ReadConfigIntent
     data class ShowReadTitleAdditionChanged(val value: Boolean) : ReadConfigIntent
     data class ShowMenuIconChanged(val value: Boolean) : ReadConfigIntent
+    data class AutoSuggestDayNightChanged(val value: Boolean) : ReadConfigIntent
     data class PageKeysChanged(val prevKeys: String, val nextKeys: String) : ReadConfigIntent
+}
+
+sealed interface ReadConfigEffect {
+    data class SettingsUpdateFailed(val message: String) : ReadConfigEffect
 }

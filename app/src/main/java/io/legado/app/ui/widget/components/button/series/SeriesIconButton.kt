@@ -1,8 +1,9 @@
 package io.legado.app.ui.widget.components.button.series
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -16,16 +17,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
-import androidx.compose.animation.core.snap
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,9 +41,8 @@ import androidx.compose.ui.unit.dp
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.LegadoTheme.composeEngine
 import io.legado.app.ui.theme.ThemeResolver
+import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.text.AppText
-import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
-import top.yukonga.miuix.kmp.basic.Text as MiuixText
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal val SeriesIconSize: Dp
@@ -107,7 +106,9 @@ internal fun SeriesButton(
     val interactionSource = remember { MutableInteractionSource() }
 
     Box(
-        modifier = modifier
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .then(modifier)
             .then(if (size != null) Modifier.size(size) else Modifier)
             .clip(shape)
             .background(containerColor, shape)
@@ -148,6 +149,9 @@ internal fun SeriesIconButton(
     selectedContainerColor: Color = LegadoTheme.colorScheme.primaryContainer,
     selectedContentColor: Color = LegadoTheme.colorScheme.onPrimaryContainer,
 ) {
+    require(!contentDescription.isNullOrBlank()) {
+        "Icon-only buttons must provide a contentDescription"
+    }
     SeriesButton(
         onClick = onClick,
         modifier = modifier,
@@ -161,8 +165,8 @@ internal fun SeriesIconButton(
         selectedContainerColor = selectedContainerColor,
         selectedContentColor = selectedContentColor
     ) { resolvedContentColor ->
-        SeriesIcon(
-            icon = icon,
+        AppIcon(
+            imageVector = icon,
             contentDescription = contentDescription,
             tint = resolvedContentColor,
             modifier = Modifier.size(iconSize)
@@ -182,6 +186,9 @@ internal fun SeriesButtonContent(
     spacing: Dp
 ) {
     val hasText = text != null
+    require(hasText || !contentDescription.isNullOrBlank()) {
+        "Icon-only buttons must provide a contentDescription"
+    }
     Row(
         modifier = Modifier.padding(if (hasText) padding else PaddingValues(0.dp)),
         horizontalArrangement = Arrangement.spacedBy(
@@ -191,27 +198,19 @@ internal fun SeriesButtonContent(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            SeriesIcon(
-                icon = icon,
+            AppIcon(
+                imageVector = icon,
                 contentDescription = contentDescription,
                 tint = contentColor,
                 modifier = Modifier.size(iconSize)
             )
         }
         if (text != null) {
-            if (ThemeResolver.isMiuixEngine(composeEngine)) {
-                MiuixText(
-                    text = text,
-                    style = textStyle,
-                    color = contentColor
-                )
-            } else {
-                AppText(
-                    text = text,
-                    style = textStyle,
-                    color = contentColor
-                )
-            }
+            AppText(
+                text = text,
+                style = textStyle,
+                color = contentColor
+            )
         }
     }
 }
@@ -237,57 +236,23 @@ internal fun SeriesAnimatedButtonContent(
         ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        SeriesIcon(
-            icon = icon,
+        AppIcon(
+            imageVector = icon,
             contentDescription = contentDescription,
             tint = contentColor,
             modifier = Modifier.size(iconSize)
         )
         AnimatedVisibility(visible = showText && text != null) {
             if (text != null) {
-                if (ThemeResolver.isMiuixEngine(composeEngine)) {
-                    MiuixText(
-                        text = text,
-                        style = textStyle,
-                        color = contentColor,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                } else {
-                    AppText(
-                        text = text,
-                        style = textStyle,
-                        color = contentColor,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                AppText(
+                    text = text,
+                    style = textStyle,
+                    color = contentColor,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun SeriesIcon(
-    icon: ImageVector,
-    contentDescription: String?,
-    tint: Color,
-    modifier: Modifier
-) {
-    if (ThemeResolver.isMiuixEngine(composeEngine)) {
-        MiuixIcon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = modifier
-        )
-    } else {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = modifier
-        )
     }
 }
 
@@ -297,8 +262,8 @@ internal fun squareSize(size: Dp) = DpSize(size, size)
 private fun containerColor(style: SeriesIconButtonStyle): Color {
     return when (style) {
         SeriesIconButtonStyle.Plain -> Color.Transparent
-        SeriesIconButtonStyle.Tonal,
-        SeriesIconButtonStyle.Outlined -> LegadoTheme.colorScheme.surfaceContainerLow
+        SeriesIconButtonStyle.Tonal -> LegadoTheme.colorScheme.surfaceContainerLow
+        SeriesIconButtonStyle.Outlined -> LegadoTheme.colorScheme.surface.copy(alpha = 0f)
     }
 }
 
