@@ -11,6 +11,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
 import io.legado.app.ui.book.read.sheet.ClickActionConfigSheet
+import io.legado.app.ui.book.read.sheet.EyeProtectionConfigSheet
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.SplicedColumnGroup
@@ -168,6 +169,16 @@ fun ReadConfigScreen(
                     }
                 )
 
+                ClickableSettingItem(
+                    title = stringResource(R.string.eye_protection),
+                    option = if (state.eyeProtection.configured) {
+                        stringResource(R.string.enabled)
+                    } else {
+                        stringResource(R.string.disabled)
+                    },
+                    onClick = { onIntent(ReadConfigIntent.OpenEyeProtection) },
+                )
+
                     DropdownListSettingItem(
                     title = stringResource(R.string.show_brightness_view),
                         selectedValue = settings.showBrightnessView,
@@ -287,6 +298,14 @@ fun ReadConfigScreen(
                 )
 
                 SwitchSettingItem(
+                    title = stringResource(R.string.use_new_toc_sheet),
+                    checked = settings.useNewTocSheet,
+                    onCheckedChange = {
+                        onIntent(ReadConfigIntent.UseNewTocSheetChanged(it))
+                    }
+                )
+
+                SwitchSettingItem(
                     title = stringResource(R.string.enable_select_vibrator),
                     checked = settings.selectVibrator,
                     onCheckedChange = {
@@ -400,4 +419,21 @@ fun ReadConfigScreen(
             onDismissRequest = { onIntent(ReadConfigIntent.DismissSheet) },
         )
     }
+
+    EyeProtectionConfigSheet(
+        show = state.activeSheet == ReadConfigSheet.EyeProtection,
+        enabled = state.eyeProtection.enabled,
+        intensity = state.eyeProtection.intensity,
+        autoNight = state.eyeProtection.autoNight,
+        schedule = state.eyeProtection.schedule,
+        startTime = state.eyeProtection.startTime,
+        endTime = state.eyeProtection.endTime,
+        onDismissRequest = { onIntent(ReadConfigIntent.DismissSheet) },
+        onEnabledChange = { onIntent(ReadConfigIntent.EyeProtectionEnabledChanged(it)) },
+        onIntensityChange = { onIntent(ReadConfigIntent.EyeProtectionIntensityChanged(it)) },
+        onAutoNightChange = { onIntent(ReadConfigIntent.EyeProtectionAutoNightChanged(it)) },
+        onScheduleChange = { onIntent(ReadConfigIntent.EyeProtectionScheduleChanged(it)) },
+        onStartTimeChange = { onIntent(ReadConfigIntent.EyeProtectionStartTimeChanged(it)) },
+        onEndTimeChange = { onIntent(ReadConfigIntent.EyeProtectionEndTimeChanged(it)) },
+    )
 }

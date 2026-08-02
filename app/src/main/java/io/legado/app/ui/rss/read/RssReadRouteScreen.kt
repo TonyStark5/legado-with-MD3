@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -52,7 +51,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.constant.AppConst
 import io.legado.app.help.http.CookieManager
-import io.legado.app.ui.login.SourceLoginActivity
+import io.legado.app.ui.login.SourceLoginType
+import io.legado.app.ui.main.MainActivity
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.LocalHazeState
 import io.legado.app.ui.theme.ThemeResolver
@@ -60,7 +60,8 @@ import io.legado.app.ui.theme.responsiveHazeEffect
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
-import io.legado.app.ui.widget.components.button.series.SmallPlainButton
+import io.legado.app.ui.widget.components.button.series.MediumTonalButton
+import io.legado.app.ui.widget.components.icon.AppIcons
 import io.legado.app.ui.widget.components.menuItem.MenuItemIcon
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
@@ -71,11 +72,10 @@ import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
 import io.legado.app.ui.widget.components.topbar.TopBarActionButton
 import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import io.legado.app.utils.NetworkUtils
+import io.legado.app.utils.applyDayNight
 import io.legado.app.utils.keepScreenOn
 import io.legado.app.utils.openUrl
-import io.legado.app.utils.setDarkeningAllowed
 import io.legado.app.utils.share
-import io.legado.app.utils.startActivity
 import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.toggleSystemBar
 import org.apache.commons.text.StringEscapeUtils
@@ -203,7 +203,7 @@ fun RssReadRouteScreen(
 
     LaunchedEffect(isNight, webView) {
         val currentWebView = webView ?: return@LaunchedEffect
-        currentWebView.settings.setDarkeningAllowed(isNight)
+        currentWebView.applyDayNight(isNight)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -235,7 +235,7 @@ fun RssReadRouteScreen(
                         }
                         Box {
                         TopBarActionButton(
-                            imageVector = Icons.Default.MoreVert,
+                            imageVector = AppIcons.MoreVert,
                             contentDescription = stringResource(R.string.more_menu),
                             onClick = { showMenu = true }
                         )
@@ -283,10 +283,13 @@ fun RssReadRouteScreen(
                                     leadingIcon = { MenuItemIcon(Icons.AutoMirrored.Filled.Login) },
                                     onClick = {
                                         dismiss()
-                                        context.startActivity<SourceLoginActivity> {
-                                            putExtra("type", "rssSource")
-                                            putExtra("key", viewModel.rssSource?.sourceUrl)
-                                        }
+                                        context.startActivity(
+                                            MainActivity.createSourceLoginIntent(
+                                                context,
+                                                SourceLoginType.RssSource,
+                                                viewModel.rssSource?.sourceUrl,
+                                            )
+                                        )
                                     }
                                 )
                                 }
@@ -473,7 +476,7 @@ private fun FavoriteEditSheet(
         onDismissRequest = onDismissRequest,
         title = stringResource(R.string.favorite),
         endAction = {
-            SmallPlainButton(
+            MediumTonalButton(
                 onClick = onDelete,
                 icon = Icons.Default.CleaningServices,
                 contentDescription = stringResource(R.string.delete)

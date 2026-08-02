@@ -25,6 +25,13 @@ data class ThemeSettings(
     val themeBackgroundColorNight: Int = 0,
     val labelContainerColorNight: Int = 0,
     val containerOpacity: Int = 100,
+    val overrideBaseCardCornerRadius: Boolean = false,
+    val baseCardCornerRadius: Float = 16f,
+    val overrideBaseCardBorder: Boolean = false,
+    val baseCardBorderWidth: Float = 1f,
+    val baseCardBorderColor: Int = 0,
+    val baseCardBorderColorNight: Int = 0,
+    val disableSplicedColumnGroupCornerRadius: Boolean = false,
     val topBarOpacity: Int = 100,
     val bottomBarOpacity: Int = 100,
     val enableBlur: Boolean = false,
@@ -38,16 +45,25 @@ data class ThemeSettings(
     val bookInfoFollowCoverColor: Boolean = true,
     val bookInfoNetworkCoverBackground: String = "on",
     val bookInfoDefaultCoverBackground: String = "on",
+    val bookInfoInputColor: Int = 0,
     val backgroundImageLight: String? = null,
     val backgroundImageDark: String? = null,
     val backgroundImageBlurring: Int = 0,
     val backgroundImageDarkBlurring: Int = 0,
+    val largeContainerBackgroundImageLight: String? = null,
+    val largeContainerBackgroundImageDark: String? = null,
+    val itemBackgroundImageLight: String? = null,
+    val itemBackgroundImageDark: String? = null,
+    val enableContainerBackgroundImage: Boolean = false,
+    val appColumnBackgroundOpacity: Int = 100,
+    val glassCardBackgroundOpacity: Int = 100,
     val enableItemDivider: Boolean = false,
     val itemDividerWidth: Float = 1f,
     val itemDividerLength: Float = 80f,
     val itemDividerColor: Int = 0,
     val eyeProtectionEnabled: Boolean = false,
     val colorTemperature: Int = 50,
+    val eyeProtectionAutoNight: Boolean = false,
     val eyeProtectionSchedule: Boolean = false,
     val eyeProtectionStartTime: String = "22:00",
     val eyeProtectionEndTime: String = "07:00",
@@ -55,6 +71,9 @@ data class ThemeSettings(
     val enableCustomTagColors: Boolean = false,
     val customTagColorsJson: String? = null,
 )
+
+val ThemeSettings.isEyeProtectionConfigured: Boolean
+    get() = eyeProtectionEnabled || eyeProtectionAutoNight
 
 data class ThemeCustomColors(
     val primary: Int,
@@ -89,3 +108,6 @@ fun ThemeSettings.customColors(isDark: Boolean): ThemeCustomColors =
             labelContainer = labelContainerColor,
         )
     }
+
+fun ThemeSettings.hasBackgroundImage(isDark: Boolean): Boolean =
+    if (isDark) !backgroundImageDark.isNullOrBlank() else !backgroundImageLight.isNullOrBlank()

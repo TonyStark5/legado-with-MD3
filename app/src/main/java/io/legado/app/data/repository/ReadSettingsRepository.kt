@@ -9,66 +9,36 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.constant.ReadMenuBlurMode
 import io.legado.app.constant.ReadMenuBlurStyle
 import io.legado.app.domain.gateway.ReadSettingsGateway
-import io.legado.app.domain.gateway.ReadSettingsUpdate
 import io.legado.app.domain.model.settings.ReadSettings
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.compatDsValue
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 
 typealias ReadPreferences = ReadSettings
 
 class ReadSettingsRepository(
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val preferencesFlow: StateFlow<Preferences> = AppConfigStore.preferencesFlow,
 ) : ReadSettingsGateway {
 
-    override val settings: Flow<ReadSettings> = AppConfigStore.preferencesFlow
+    override val currentSettings: ReadSettings
+        get() = preferencesFlow.value.toReadSettings()
+
+    override val settings: Flow<ReadSettings> = preferencesFlow
         .map { preferences ->
             preferences.toReadSettings()
         }
 
     val preferences: Flow<ReadPreferences> = settings
 
-    override suspend fun update(update: ReadSettingsUpdate) {
-        when (update) {
-            is ReadSettingsUpdate.ScreenOrientation -> setScreenOrientation(update.value)
-            is ReadSettingsUpdate.KeepLight -> setKeepLight(update.value)
-            is ReadSettingsUpdate.HideStatusBar -> setHideStatusBar(update.value)
-            is ReadSettingsUpdate.HideNavigationBar -> setHideNavigationBar(update.value)
-            is ReadSettingsUpdate.PaddingDisplayCutouts -> setPaddingDisplayCutouts(update.value)
-            is ReadSettingsUpdate.TitleBarMode -> setTitleBarMode(update.value)
-            is ReadSettingsUpdate.ReadMenuBlurAlpha -> setReadMenuBlurAlpha(update.value)
-            is ReadSettingsUpdate.ReadBodyToLh -> setReadBodyToLh(update.value)
-            is ReadSettingsUpdate.DefaultSourceChangeAll -> setDefaultSourceChangeAll(update.value)
-            is ReadSettingsUpdate.TextFullJustify -> setTextFullJustify(update.value)
-            is ReadSettingsUpdate.TextBottomJustify -> setTextBottomJustify(update.value)
-            is ReadSettingsUpdate.AdaptSpecialStyle -> setAdaptSpecialStyle(update.value)
-            is ReadSettingsUpdate.UseZhLayout -> setUseZhLayout(update.value)
-            is ReadSettingsUpdate.ShowBrightnessView -> setShowBrightnessView(update.value)
-            is ReadSettingsUpdate.BrightnessVwPos -> setBrightnessVwPos(update.value)
-            is ReadSettingsUpdate.UseUnderline -> setUseUnderline(update.value)
-            is ReadSettingsUpdate.ReadSliderMode -> setReadSliderMode(update.value)
-            is ReadSettingsUpdate.DoubleHorizontalPage -> setDoubleHorizontalPage(update.value)
-            is ReadSettingsUpdate.ProgressBarBehavior -> setProgressBarBehavior(update.value)
-            is ReadSettingsUpdate.MouseWheelPage -> setMouseWheelPage(update.value)
-            is ReadSettingsUpdate.VolumeKeyPage -> setVolumeKeyPage(update.value)
-            is ReadSettingsUpdate.VolumeKeyPageOnPlay -> setVolumeKeyPageOnPlay(update.value)
-            is ReadSettingsUpdate.KeyPageOnLongPress -> setKeyPageOnLongPress(update.value)
-            is ReadSettingsUpdate.PageTouchSlop -> setPageTouchSlop(update.value)
-            is ReadSettingsUpdate.SliderVibrator -> setSliderVibrator(update.value)
-            is ReadSettingsUpdate.SelectVibrator -> setSelectVibrator(update.value)
-            is ReadSettingsUpdate.AutoChangeSource -> setAutoChangeSource(update.value)
-            is ReadSettingsUpdate.AutoSuggestDayNight -> setAutoSuggestDayNight(update.value)
-            is ReadSettingsUpdate.SelectText -> setSelectText(update.value)
-            is ReadSettingsUpdate.NoAnimScrollPage -> setNoAnimScrollPage(update.value)
-            is ReadSettingsUpdate.ClickImgWay -> setClickImgWay(update.value)
-            is ReadSettingsUpdate.OptimizeRender -> setOptimizeRender(update.value)
-            is ReadSettingsUpdate.DisableReturnKey -> setDisableReturnKey(update.value)
-            is ReadSettingsUpdate.ShowReadTitleAddition -> setShowReadTitleAddition(update.value)
-            is ReadSettingsUpdate.ShowMenuIcon -> setShowMenuIcon(update.value)
-            is ReadSettingsUpdate.PageKeys -> setPageKeys(update.previous, update.next)
-            is ReadSettingsUpdate.FontFolder -> setFontFolder(update.value)
-        }
+    override suspend fun update(transform: (ReadSettings) -> ReadSettings) {
+        AppConfigStore.atomicUpdate(
+            read = { it.toReadSettings() },
+            toPrefMap = ReadSettings::toGatewayPrefMap,
+            transform = transform,
+        )
     }
 
     suspend fun setScreenOrientation(value: String) =
@@ -152,6 +122,9 @@ class ReadSettingsRepository(
     suspend fun setSliderVibrator(value: Boolean) =
         settingsRepository.putBoolean(PreferKey.sliderVibrator, value)
 
+    suspend fun setUseNewTocSheet(value: Boolean) =
+        settingsRepository.putBoolean(PreferKey.useNewTocSheet, value)
+
     suspend fun setSelectVibrator(value: Boolean) =
         settingsRepository.putBoolean(PreferKey.selectVibrator, value)
 
@@ -187,6 +160,12 @@ class ReadSettingsRepository(
 
     suspend fun setAutoReadSpeed(value: Int) =
         settingsRepository.putInt(PreferKey.autoReadSpeed, value)
+
+    suspend fun setSystemTypefaces(value: Int) =
+        settingsRepository.putInt(PreferKey.systemTypefaces, value)
+
+    suspend fun setPreDownloadNum(value: Int) =
+        settingsRepository.putInt(PreferKey.preDownloadNum, value)
 
     suspend fun setPageKeys(prevKeys: String, nextKeys: String) {
         settingsRepository.putStrings(
@@ -287,6 +266,9 @@ class ReadSettingsRepository(
     suspend fun setReadMenuBottomBarLiquidGlassButtons(value: Boolean) =
         settingsRepository.putBoolean(PreferKey.readMenuBottomBarLiquidGlassButtons, value)
 
+    suspend fun setReadMenuFloatingIconLiquidGlass(value: Boolean) =
+        settingsRepository.putBoolean(PreferKey.readMenuFloatingIconLiquidGlass, value)
+
     suspend fun setReadMenuTopBarBlurStyle(value: Int) =
         settingsRepository.putInt(PreferKey.readMenuTopBarBlurStyle, value.coerceIn(0, 1))
 
@@ -335,6 +317,9 @@ class ReadSettingsRepository(
     suspend fun setShowMenuIcon(value: Boolean) =
         settingsRepository.putBoolean(PreferKey.showMenuIcon, value)
 
+    suspend fun setTitleBarCompact(value: Boolean) =
+        settingsRepository.putBoolean(PreferKey.titleBarCompact, value)
+
     suspend fun setChineseConverterType(value: Int) =
         settingsRepository.putInt(PreferKey.chineseConverterType, value)
 
@@ -346,7 +331,7 @@ class ReadSettingsRepository(
         }
     }
 
-    private fun Preferences.toReadSettings(): ReadSettings {
+    internal fun Preferences.toReadSettings(): ReadSettings {
         val readStyleSelect = compatDsValue(Keys.ReadStyleSelect, 0)
         return ReadSettings(
             screenOrientation = compatDsValue(Keys.ScreenOrientation, "0"),
@@ -362,10 +347,10 @@ class ReadSettingsRepository(
             textBottomJustify = compatDsValue(Keys.TextBottomJustify, true),
             adaptSpecialStyle = compatDsValue(Keys.AdaptSpecialStyle, true),
             useZhLayout = compatDsValue(Keys.UseZhLayout, false),
-            showBrightnessView = compatDsValue(Keys.ShowBrightnessView, "1"),
+            showBrightnessView = compatDsValue(Keys.ShowBrightnessView, "0"),
             brightnessVwPos = compatDsValue(Keys.BrightnessVwPos, "1"),
             readBrightness = compatDsValue(Keys.ReadBrightness, 100),
-            brightnessAuto = compatDsValue(Keys.BrightnessAuto, false),
+            brightnessAuto = compatDsValue(Keys.BrightnessAuto, true),
             useUnderline = compatDsValue(Keys.UseUnderline, false),
             readSliderMode = compatDsValue(Keys.ReadSliderMode, "0"),
             doubleHorizontalPage = compatDsValue(Keys.DoubleHorizontalPage, "0"),
@@ -376,6 +361,7 @@ class ReadSettingsRepository(
             keyPageOnLongPress = compatDsValue(Keys.KeyPageOnLongPress, false),
             pageTouchSlop = compatDsValue(Keys.PageTouchSlop, 0),
             sliderVibrator = compatDsValue(Keys.SliderVibrator, false),
+            useNewTocSheet = compatDsValue(Keys.UseNewTocSheet, true),
             selectVibrator = compatDsValue(Keys.SelectVibrator, false),
             autoChangeSource = compatDsValue(Keys.AutoChangeSource, true),
             autoSuggestDayNight = compatDsValue(Keys.AutoSuggestDayNight, false),
@@ -386,17 +372,21 @@ class ReadSettingsRepository(
             disableReturnKey = compatDsValue(Keys.DisableReturnKey, false),
             expandTextMenu = compatDsValue(Keys.ExpandTextMenu, false),
             showSelectMenuIcon = compatDsValue(Keys.ShowSelectMenuIcon, true),
+            textSelectMenuConfig = compatDsValue(Keys.TextSelectMenuConfig, ""),
             showReadTitleAddition = compatDsValue(Keys.ShowReadTitleAddition, true),
             autoReadSpeed = compatDsValue(Keys.AutoReadSpeed, 10),
+            systemTypefaces = compatDsValue(Keys.SystemTypefaces, 0),
+            preDownloadNum = compatDsValue(Keys.PreDownloadNum, 10),
             prevKeys = compatDsValue(Keys.PrevKeys, ""),
             nextKeys = compatDsValue(Keys.NextKeys, ""),
             tocUiUseReplace = compatDsValue(Keys.TocUiUseReplace, false),
             tocCountWords = compatDsValue(Keys.TocCountWords, true),
+            readUrlInBrowser = compatDsValue(Keys.ReadUrlInBrowser, false),
             readStyleSelect = readStyleSelect,
             comicStyleSelect = compatDsValue(Keys.ComicStyleSelect, readStyleSelect),
             shareLayout = compatDsValue(Keys.ShareLayout, false),
             readBarStyleFollowPage = compatDsValue(Keys.ReadBarStyleFollowPage, false),
-            readBarStyle = compatDsValue(Keys.ReadBarStyle, 0),
+            readBarStyle = compatDsValue(Keys.ReadBarStyle, 1),
             clickActionTL = compatDsValue(Keys.ClickActionTL, 2),
             clickActionTC = compatDsValue(Keys.ClickActionTC, 2),
             clickActionTR = compatDsValue(Keys.ClickActionTR, 1),
@@ -416,35 +406,44 @@ class ReadSettingsRepository(
             readMenuTextColor = compatDsValue(Keys.ReadMenuTextColor, 0),
             readMenuTextColorNight = compatDsValue(Keys.ReadMenuTextColorNight, 0),
             readMenuColorMode = compatDsValue(Keys.ReadMenuColorMode, 1),
-            readMenuIconShowText = compatDsValue(Keys.ReadMenuIconShowText, true),
+            readMenuIconShowText = compatDsValue(Keys.ReadMenuIconShowText, false),
             readMenuIconStyle = compatDsValue(Keys.ReadMenuIconStyle, 0),
             titleBarIconStyle = compatDsValue(Keys.TitleBarIconStyle, 0),
             readMenuIconItemsPerRow = compatDsValue(Keys.ReadMenuIconItemsPerRow, 5),
             readMenuIconRowCount = compatDsValue(Keys.ReadMenuIconRowCount, 1),
-            readMenuBottomCornerRadius = compatDsValue(Keys.ReadMenuBottomCornerRadius, 0),
-            readMenuFloatingBottomBar = compatDsValue(Keys.ReadMenuFloatingBottomBar, false),
+            readMenuBottomCornerRadius = compatDsValue(Keys.ReadMenuBottomCornerRadius, 32),
+            readMenuFloatingBottomBar = compatDsValue(Keys.ReadMenuFloatingBottomBar, true),
             readMenuTopBarBlurMode = compatDsValue(Keys.ReadMenuTopBarBlurMode, ReadMenuBlurMode.None),
             readMenuBottomBarBlurMode = compatDsValue(Keys.ReadMenuBottomBarBlurMode, ReadMenuBlurMode.None),
             readMenuTopBarLiquidGlassButtons = compatDsValue(Keys.ReadMenuTopBarLiquidGlassButtons, false),
             readMenuTopBarTitleCapsule = compatDsValue(Keys.ReadMenuTopBarTitleCapsule, false),
             readMenuBottomBarLiquidGlassButtons = compatDsValue(Keys.ReadMenuBottomBarLiquidGlassButtons, false),
-            readMenuTopBarBlurStyle = compatDsValue(Keys.ReadMenuTopBarBlurStyle, ReadMenuBlurStyle.Progressive),
+            readMenuFloatingIconLiquidGlass = compatDsValue(
+                Keys.ReadMenuFloatingIconLiquidGlass,
+                false
+            ),
+            readMenuTopBarBlurStyle = compatDsValue(
+                Keys.ReadMenuTopBarBlurStyle,
+                ReadMenuBlurStyle.Solid
+            ),
             readMenuBottomBarBlurStyle = compatDsValue(Keys.ReadMenuBottomBarBlurStyle, ReadMenuBlurStyle.Solid),
             readMenuBlurRadius = compatDsValue(Keys.ReadMenuBlurRadius, 24),
-            readMenuBlurAlpha = compatDsValue(Keys.ReadMenuBlurAlpha, 60),
+            readMenuBlurAlpha = compatDsValue(Keys.ReadMenuBlurAlpha, 100),
             readMenuBlurColor = compatDsValue(Keys.ReadMenuBlurColor, 0),
             readMenuBlurColorNight = compatDsValue(Keys.ReadMenuBlurColorNight, 0),
             readMenuPaletteStyle = compatDsValue(Keys.ReadMenuPaletteStyle, ""),
             readMenuLensRadius = compatDsValue(Keys.ReadMenuLensRadius, 24f),
-            readMenuBorderWidth = compatDsValue(Keys.ReadMenuBorderWidth, 0),
+            readMenuBorderWidth = compatDsValue(Keys.ReadMenuBorderWidth, 1),
             readMenuBorderColor = compatDsValue(Keys.ReadMenuBorderColor, 0),
             readMenuBorderColorNight = compatDsValue(Keys.ReadMenuBorderColorNight, 0),
             readMenuCustomIcons = compatDsValue(Keys.ReadMenuCustomIcons, ""),
             titleBarCustomIcons = compatDsValue(Keys.TitleBarCustomIcons, ""),
-            titleBarIconPosition = compatDsValue(Keys.TitleBarIconPosition, 0),
+            titleBarIconPosition = compatDsValue(Keys.TitleBarIconPosition, 3),
             showTitleBarIcons = compatDsValue(Keys.ShowTitleBarIcons, false),
             chineseConverterType = compatDsValue(Keys.ChineseConverterType, 0),
-            showMenuIcon = compatDsValue(Keys.ShowMenuIcon, true),
+            showMenuIcon = compatDsValue(Keys.ShowMenuIcon, false),
+            titleBarCompact = compatDsValue(Keys.TitleBarCompact, false),
+            moreActionsConfig = compatDsValue(Keys.MoreActionsConfig, ""),
         )
     }
 
@@ -476,6 +475,7 @@ class ReadSettingsRepository(
         val KeyPageOnLongPress = booleanPreferencesKey(PreferKey.keyPageOnLongPress)
         val PageTouchSlop = intPreferencesKey(PreferKey.pageTouchSlop)
         val SliderVibrator = booleanPreferencesKey(PreferKey.sliderVibrator)
+        val UseNewTocSheet = booleanPreferencesKey(PreferKey.useNewTocSheet)
         val SelectVibrator = booleanPreferencesKey(PreferKey.selectVibrator)
         val AutoChangeSource = booleanPreferencesKey(PreferKey.autoChangeSource)
         val AutoSuggestDayNight = booleanPreferencesKey(PreferKey.autoSuggestDayNight)
@@ -486,12 +486,16 @@ class ReadSettingsRepository(
         val DisableReturnKey = booleanPreferencesKey(PreferKey.disableReturnKey)
         val ExpandTextMenu = booleanPreferencesKey(PreferKey.expandTextMenu)
         val ShowSelectMenuIcon = booleanPreferencesKey(PreferKey.showSelectMenuIcon)
+        val TextSelectMenuConfig = stringPreferencesKey(PreferKey.textSelectMenuConfig)
         val ShowReadTitleAddition = booleanPreferencesKey(PreferKey.showReadTitleAddition)
         val AutoReadSpeed = intPreferencesKey(PreferKey.autoReadSpeed)
+        val SystemTypefaces = intPreferencesKey(PreferKey.systemTypefaces)
+        val PreDownloadNum = intPreferencesKey(PreferKey.preDownloadNum)
         val PrevKeys = stringPreferencesKey(PreferKey.prevKeys)
         val NextKeys = stringPreferencesKey(PreferKey.nextKeys)
         val TocUiUseReplace = booleanPreferencesKey(PreferKey.tocUiUseReplace)
         val TocCountWords = booleanPreferencesKey(PreferKey.tocCountWords)
+        val ReadUrlInBrowser = booleanPreferencesKey(PreferKey.readUrlOpenInBrowser)
         val ReadStyleSelect = intPreferencesKey(PreferKey.readStyleSelect)
         val ComicStyleSelect = intPreferencesKey(PreferKey.comicStyleSelect)
         val ShareLayout = booleanPreferencesKey(PreferKey.shareLayout)
@@ -531,6 +535,8 @@ class ReadSettingsRepository(
             booleanPreferencesKey(PreferKey.readMenuTopBarTitleCapsule)
         val ReadMenuBottomBarLiquidGlassButtons =
             booleanPreferencesKey(PreferKey.readMenuBottomBarLiquidGlassButtons)
+        val ReadMenuFloatingIconLiquidGlass =
+            booleanPreferencesKey(PreferKey.readMenuFloatingIconLiquidGlass)
         val ReadMenuTopBarBlurStyle = intPreferencesKey(PreferKey.readMenuTopBarBlurStyle)
         val ReadMenuBottomBarBlurStyle = intPreferencesKey(PreferKey.readMenuBottomBarBlurStyle)
         val ReadMenuBlurRadius = intPreferencesKey(PreferKey.readMenuBlurRadius)
@@ -548,5 +554,125 @@ class ReadSettingsRepository(
         val ShowTitleBarIcons = booleanPreferencesKey(PreferKey.showTitleBarIcons)
         val ChineseConverterType = intPreferencesKey(PreferKey.chineseConverterType)
         val ShowMenuIcon = booleanPreferencesKey(PreferKey.showMenuIcon)
+        val TitleBarCompact = booleanPreferencesKey(PreferKey.titleBarCompact)
+        val MoreActionsConfig = stringPreferencesKey(PreferKey.moreActionsConfig)
     }
 }
+
+/**
+ * [ReadSettings] 每个字段到 DataStore 键的完整映射。
+ *
+ * 必须覆盖全部字段：通用 `update {}` 只持久化本表里的键，漏一个就是静默丢写——
+ * 调用方以为存了，重启后值回退。此前只覆盖 48/102，其余靠专用 setter 兜底，
+ * 但没有任何机制阻止新代码走 `update {}` 改到未覆盖的字段。
+ * [ReadSettingsGatewayMapCoverageTest] 断言这张表与 [ReadSettings] 字段一一对应。
+ *
+ * 全量写不是问题：`AppConfigStore.atomicUpdate` 只把与旧值不同的键入队
+ * （见 `atomicDiffLocked`），未被 transform 改动的字段不会产生写入。
+ */
+internal fun ReadSettings.toGatewayPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.screenOrientation to screenOrientation,
+    PreferKey.keepLight to keepLight,
+    PreferKey.hideStatusBar to hideStatusBar,
+    PreferKey.hideNavigationBar to hideNavigationBar,
+    PreferKey.paddingDisplayCutouts to paddingDisplayCutouts,
+    PreferKey.titleBarMode to titleBarMode,
+    PreferKey.menuAlpha to menuAlpha,
+    PreferKey.readBodyToLh to readBodyToLh,
+    PreferKey.defaultSourceChangeAll to defaultSourceChangeAll,
+    PreferKey.textFullJustify to textFullJustify,
+    PreferKey.textBottomJustify to textBottomJustify,
+    PreferKey.adaptSpecialStyle to adaptSpecialStyle,
+    PreferKey.useZhLayout to useZhLayout,
+    PreferKey.showBrightnessView to showBrightnessView,
+    PreferKey.brightnessVwPos to brightnessVwPos,
+    PreferKey.brightness to readBrightness,
+    PreferKey.brightnessAuto to brightnessAuto,
+    PreferKey.useUnderline to useUnderline,
+    PreferKey.readSliderMode to readSliderMode,
+    PreferKey.doublePageHorizontal to doubleHorizontalPage,
+    PreferKey.progressBarBehavior to progressBarBehavior,
+    PreferKey.mouseWheelPage to mouseWheelPage,
+    PreferKey.volumeKeyPage to volumeKeyPage,
+    PreferKey.volumeKeyPageOnPlay to volumeKeyPageOnPlay,
+    PreferKey.keyPageOnLongPress to keyPageOnLongPress,
+    PreferKey.pageTouchSlop to pageTouchSlop,
+    PreferKey.sliderVibrator to sliderVibrator,
+    PreferKey.useNewTocSheet to useNewTocSheet,
+    PreferKey.selectVibrator to selectVibrator,
+    PreferKey.autoChangeSource to autoChangeSource,
+    PreferKey.autoSuggestDayNight to autoSuggestDayNight,
+    PreferKey.selectText to selectText,
+    PreferKey.noAnimScrollPage to noAnimScrollPage,
+    PreferKey.clickImgWay to clickImgWay,
+    PreferKey.optimizeRender to optimizeRender,
+    PreferKey.disableReturnKey to disableReturnKey,
+    PreferKey.expandTextMenu to expandTextMenu,
+    PreferKey.showSelectMenuIcon to showSelectMenuIcon,
+    PreferKey.textSelectMenuConfig to textSelectMenuConfig,
+    PreferKey.showReadTitleAddition to showReadTitleAddition,
+    PreferKey.autoReadSpeed to autoReadSpeed,
+    PreferKey.systemTypefaces to systemTypefaces,
+    PreferKey.preDownloadNum to preDownloadNum,
+    PreferKey.prevKeys to prevKeys,
+    PreferKey.nextKeys to nextKeys,
+    PreferKey.tocUiUseReplace to tocUiUseReplace,
+    PreferKey.tocCountWords to tocCountWords,
+    PreferKey.readUrlOpenInBrowser to readUrlInBrowser,
+    PreferKey.readStyleSelect to readStyleSelect,
+    PreferKey.comicStyleSelect to comicStyleSelect,
+    PreferKey.shareLayout to shareLayout,
+    PreferKey.readBarStyleFollowPage to readBarStyleFollowPage,
+    PreferKey.readBarStyle to readBarStyle,
+    PreferKey.clickActionTL to clickActionTL,
+    PreferKey.clickActionTC to clickActionTC,
+    PreferKey.clickActionTR to clickActionTR,
+    PreferKey.clickActionML to clickActionML,
+    PreferKey.clickActionMC to clickActionMC,
+    PreferKey.clickActionMR to clickActionMR,
+    PreferKey.clickActionBL to clickActionBL,
+    PreferKey.clickActionBC to clickActionBC,
+    PreferKey.clickActionBR to clickActionBR,
+    PreferKey.fontFolder to fontFolder,
+    PreferKey.readMenuBgColor to readMenuBgColor,
+    PreferKey.readMenuAccentColor to readMenuAccentColor,
+    PreferKey.readMenuContainerColor to readMenuContainerColor,
+    PreferKey.readMenuBgColorNight to readMenuBgColorNight,
+    PreferKey.readMenuAccentColorNight to readMenuAccentColorNight,
+    PreferKey.readMenuContainerColorNight to readMenuContainerColorNight,
+    PreferKey.readMenuTextColor to readMenuTextColor,
+    PreferKey.readMenuTextColorNight to readMenuTextColorNight,
+    PreferKey.readMenuColorMode to readMenuColorMode,
+    PreferKey.readMenuIconShowText to readMenuIconShowText,
+    PreferKey.readMenuIconStyle to readMenuIconStyle,
+    PreferKey.titleBarIconStyle to titleBarIconStyle,
+    PreferKey.readMenuIconItemsPerRow to readMenuIconItemsPerRow,
+    PreferKey.readMenuIconRowCount to readMenuIconRowCount,
+    PreferKey.readMenuBottomCornerRadius to readMenuBottomCornerRadius,
+    PreferKey.readMenuFloatingBottomBar to readMenuFloatingBottomBar,
+    PreferKey.readMenuTopBarBlurMode to readMenuTopBarBlurMode,
+    PreferKey.readMenuBottomBarBlurMode to readMenuBottomBarBlurMode,
+    PreferKey.readMenuTopBarLiquidGlassButtons to readMenuTopBarLiquidGlassButtons,
+    PreferKey.readMenuTopBarTitleCapsule to readMenuTopBarTitleCapsule,
+    PreferKey.readMenuBottomBarLiquidGlassButtons to readMenuBottomBarLiquidGlassButtons,
+    PreferKey.readMenuFloatingIconLiquidGlass to readMenuFloatingIconLiquidGlass,
+    PreferKey.readMenuTopBarBlurStyle to readMenuTopBarBlurStyle,
+    PreferKey.readMenuBottomBarBlurStyle to readMenuBottomBarBlurStyle,
+    PreferKey.readMenuBlurRadius to readMenuBlurRadius,
+    PreferKey.readMenuBlurAlpha to readMenuBlurAlpha,
+    PreferKey.readMenuBlurColor to readMenuBlurColor,
+    PreferKey.readMenuBlurColorNight to readMenuBlurColorNight,
+    PreferKey.readMenuPaletteStyle to readMenuPaletteStyle,
+    PreferKey.readMenuLensRadius to readMenuLensRadius,
+    PreferKey.readMenuBorderWidth to readMenuBorderWidth,
+    PreferKey.readMenuBorderColor to readMenuBorderColor,
+    PreferKey.readMenuBorderColorNight to readMenuBorderColorNight,
+    PreferKey.readMenuCustomIcons to readMenuCustomIcons,
+    PreferKey.titleBarCustomIcons to titleBarCustomIcons,
+    PreferKey.titleBarIconPosition to titleBarIconPosition,
+    PreferKey.showTitleBarIcons to showTitleBarIcons,
+    PreferKey.chineseConverterType to chineseConverterType,
+    PreferKey.showMenuIcon to showMenuIcon,
+    PreferKey.titleBarCompact to titleBarCompact,
+    PreferKey.moreActionsConfig to moreActionsConfig,
+)

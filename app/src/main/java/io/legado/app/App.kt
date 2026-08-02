@@ -35,8 +35,10 @@ import io.legado.app.data.entities.rule.ExploreRule
 import io.legado.app.data.entities.rule.SearchRule
 import io.legado.app.di.appDatabaseModule
 import io.legado.app.di.appModule
-import io.legado.app.domain.gateway.BackupSettingsGateway
 import io.legado.app.domain.gateway.AppLocaleGateway
+import io.legado.app.domain.gateway.AppShellSettingsGateway
+import io.legado.app.domain.gateway.BackupSettingsGateway
+import io.legado.app.domain.gateway.ReadStyleGateway
 import io.legado.app.help.AppFreezeMonitor
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.CrashHandler
@@ -61,14 +63,15 @@ import io.legado.app.help.storage.Backup
 import io.legado.app.lib.theme.primaryColor
 import io.legado.app.model.BookCover
 import io.legado.app.ui.book.read.page.entities.TextLine
-import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.utils.ChineseUtils
 import io.legado.app.utils.FirebaseManager
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isDebuggable
+import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import org.chromium.base.ThreadUtils
@@ -98,12 +101,29 @@ class App : Application(), ImageLoaderFactory {
         // getApplicationLocales() 恒为空，isEmpty 守卫会形同虚设
         val legacyLanguage = if (!LocalConfig.appLocaleMigrated) {
             LocalConfig.appLocaleMigrated = true
-            OtherConfig.language
+            AppConfigStore.getString(PreferKey.language) ?: "auto"
         } else null
         startKoin {
             androidContext(this@App)
             modules(appDatabaseModule, appModule)
         }
+        AppConfig.initialize(
+            shellGateway = get(),
+            themeGateway = get(),
+            bookshelfGateway = get(),
+            otherGateway = get(),
+            backupGateway = get(),
+            cacheGateway = get(),
+            coverGateway = get(),
+            readGateway = get(),
+            aloudGateway = get(),
+            importBookGateway = get(),
+            exportGateway = get(),
+        )
+        ReadBookConfig.initialize(
+            configStore = get(),
+            readSettingsGateway = get(),
+        )
         if (legacyLanguage != null) {
             get<AppLocaleGateway>().migrateLegacyLanguage(legacyLanguage)
         }
@@ -155,6 +175,17 @@ class App : Application(), ImageLoaderFactory {
                 .distinctUntilChanged()
                 .collect { AppWebDav.upConfig() }
         }
+        // themeMode 是日夜的唯一来源，除外观设置外（阅读页快捷按钮、主题包、恢复备份）
+        // 也会直接写网关。AppCompat 的夜间模式统一跟随网关，否则资源配置不变，
+        // WebView、旧 View 界面拿到的仍是切换前的深浅色。
+        Coroutine.async {
+            get<AppShellSettingsGateway>().settings
+                .map { it.themeMode }
+                .distinctUntilChanged()
+                .collect {
+                    withContext(Main) { ThemeConfigStore.initNightMode() }
+                }
+        }
         Coroutine.async {
             LogUtils.init(this@App)
             LogUtils.d("App", "onCreate")
@@ -184,7 +215,7 @@ class App : Application(), ImageLoaderFactory {
             RuleBigDataHelp.clearInvalid()
             BookHelp.clearInvalidCache()
             Backup.clearCache()
-            ReadBookConfig.clearBgAndCache()
+            get<ReadStyleGateway>().clearUnusedBackgrounds()
             ThemeConfigStore.clearBg()
             //初始化简繁转换引擎
             when (AppConfig.chineseConverterType) {

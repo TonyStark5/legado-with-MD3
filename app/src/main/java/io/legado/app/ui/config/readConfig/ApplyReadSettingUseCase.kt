@@ -1,55 +1,67 @@
 package io.legado.app.ui.config.readConfig
 
 import io.legado.app.constant.EventBus
-import io.legado.app.domain.gateway.ReadSettingsUpdate
 import io.legado.app.model.ReadBook
+import io.legado.app.ui.book.read.ConfigUpdateAction
+import io.legado.app.ui.book.read.ReadConfigUpdateBus
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.utils.postEvent
 
 /** Applies runtime reader changes after a setting has entered the effective settings snapshot. */
 class ApplyReadSettingUseCase {
 
-    operator fun invoke(update: ReadSettingsUpdate) {
-        when (update) {
-            is ReadSettingsUpdate.HideStatusBar,
-            is ReadSettingsUpdate.HideNavigationBar -> {
-                postEvent(EventBus.UP_CONFIG, arrayListOf(0, 2))
+    operator fun invoke(intent: ReadConfigIntent) {
+        when (intent) {
+            is ReadConfigIntent.HideStatusBarChanged,
+            is ReadConfigIntent.HideNavigationBarChanged -> {
+                ReadConfigUpdateBus.post(
+                    setOf(ConfigUpdateAction.UpdateSystemUi, ConfigUpdateAction.UpdateStyle)
+                )
             }
 
-            is ReadSettingsUpdate.ReadMenuBlurAlpha,
-            is ReadSettingsUpdate.ReadSliderMode,
-            is ReadSettingsUpdate.ShowReadTitleAddition,
-            is ReadSettingsUpdate.ShowMenuIcon -> {
+            is ReadConfigIntent.ReadMenuBlurAlphaChanged,
+            is ReadConfigIntent.ReadSliderModeChanged,
+            is ReadConfigIntent.ShowReadTitleAdditionChanged,
+            is ReadConfigIntent.ShowMenuIconChanged -> {
                 postEvent(EventBus.UPDATE_READ_ACTION_BAR, true)
             }
 
-            is ReadSettingsUpdate.TextFullJustify,
-            is ReadSettingsUpdate.TextBottomJustify,
-            is ReadSettingsUpdate.UseZhLayout,
-            is ReadSettingsUpdate.DoubleHorizontalPage -> updateLayout()
+            is ReadConfigIntent.TextFullJustifyChanged,
+            is ReadConfigIntent.TextBottomJustifyChanged,
+            is ReadConfigIntent.UseZhLayoutChanged,
+            is ReadConfigIntent.DoubleHorizontalPageChanged -> updateLayout()
 
-            is ReadSettingsUpdate.ProgressBarBehavior -> {
+            is ReadConfigIntent.ProgressBarBehaviorChanged -> {
                 postEvent(EventBus.UP_SEEK_BAR, true)
             }
 
-            is ReadSettingsUpdate.PageTouchSlop -> {
-                postEvent(EventBus.UP_CONFIG, arrayListOf(4))
+            is ReadConfigIntent.PageTouchSlopChanged -> {
+                ReadConfigUpdateBus.post(setOf(ConfigUpdateAction.UpdatePageSlopSquare))
             }
 
-            is ReadSettingsUpdate.NoAnimScrollPage -> ReadBook.callBack?.upPageAnim()
-            is ReadSettingsUpdate.OptimizeRender -> updateStyle()
+            is ReadConfigIntent.NoAnimScrollPageChanged -> ReadBook.renderCallBack?.upPageAnim()
+            is ReadConfigIntent.OptimizeRenderChanged -> updateStyle()
+
+            // useUnderline 进了 RenderStyle 快照，改完必须重建并重绘，否则朗读/搜索
+            // 高亮线要等下一次样式变更才生效
+            is ReadConfigIntent.UseUnderlineChanged -> {
+                ChapterProvider.upRenderStyle()
+                ReadConfigUpdateBus.post(setOf(ConfigUpdateAction.InvalidateTextPage))
+            }
             else -> Unit
         }
     }
 
     private fun updateLayout() {
+        // textBottomJustify 属于 RenderStyle 快照，重排前得先重建，否则排版读到旧值
+        ChapterProvider.upRenderStyle()
         ChapterProvider.upLayout()
         ReadBook.loadContent(false)
     }
 
     private fun updateStyle() {
         ChapterProvider.upStyle()
-        ReadBook.callBack?.upPageAnim(true)
+        ReadBook.renderCallBack?.upPageAnim(true)
         ReadBook.loadContent(false)
     }
 }

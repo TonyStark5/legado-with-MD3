@@ -22,9 +22,11 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
@@ -36,8 +38,10 @@ import io.legado.app.BuildConfig
 import io.legado.app.R
 import io.legado.app.base.BaseComposeActivity
 import io.legado.app.constant.AppConst.appInfo
+import io.legado.app.domain.gateway.BackupSettingsGateway
+import io.legado.app.domain.gateway.MangaSettingsGateway
+import io.legado.app.domain.gateway.OtherSettingsGateway
 import io.legado.app.help.book.BookHelp
-import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.LocalConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.storage.Backup
@@ -49,19 +53,20 @@ import io.legado.app.ui.about.UpdateDialog
 import io.legado.app.ui.book.read.ReadBookInputHandler
 import io.legado.app.ui.book.read.ReadBookRouteHost
 import io.legado.app.ui.book.read.page.entities.PageDirection
-import io.legado.app.ui.config.otherConfig.OtherConfig
-import io.legado.app.ui.config.themeConfig.ThemeConfig
+import io.legado.app.ui.theme.LocalAppUiConfiguration
 import io.legado.app.ui.welcome.WelcomeActivity
 import io.legado.app.ui.widget.dialog.TextDialog
-import io.legado.app.ui.widget.dialog.VariableDialog
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -69,7 +74,7 @@ import kotlin.coroutines.suspendCoroutine
 /**
  * 主界面
  */
-open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
+open class MainActivity : BaseComposeActivity() {
 
     companion object {
         private const val KEY_RESTORE_READ_ROUTE = "restoreReadRoute"
@@ -86,6 +91,30 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             MainIntent.createLauncherIntent(context)
 
         fun createHomeIntent(context: Context): Intent = MainIntent.createHomeIntent(context)
+        fun createSourceLoginIntent(
+            context: Context,
+            type: io.legado.app.ui.login.SourceLoginType,
+            sourceKey: String? = null,
+            bookUrl: String? = null,
+        ): Intent = MainIntent.createSourceLoginIntent(context, type, sourceKey, bookUrl)
+
+        fun createBookSourceManageIntent(context: Context) =
+            MainIntent.createBookSourceManageIntent(context)
+
+        fun createBookSourceEditIntent(context: Context, sourceUrl: String? = null) =
+            MainIntent.createBookSourceEditIntent(context, sourceUrl)
+
+        fun createRssSourceManageIntent(context: Context) =
+            MainIntent.createRssSourceManageIntent(context)
+
+        fun createRssSourceEditIntent(context: Context, sourceUrl: String? = null) =
+            MainIntent.createRssSourceEditIntent(context, sourceUrl)
+
+        fun createBookSourceDebugIntent(context: Context, sourceUrl: String?) =
+            MainIntent.createBookSourceDebugIntent(context, sourceUrl)
+
+        fun createRssSourceDebugIntent(context: Context, sourceUrl: String?) =
+            MainIntent.createRssSourceDebugIntent(context, sourceUrl)
         fun createIntent(context: Context, configTag: String? = null): Intent =
             MainIntent.createIntent(context, configTag)
 
@@ -190,8 +219,10 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
     }
 
     private val viewModel by viewModel<MainViewModel>()
+    private val otherSettingsGateway by inject<OtherSettingsGateway>()
+    private val mangaSettingsGateway by inject<MangaSettingsGateway>()
+    private val backupSettingsGateway by inject<BackupSettingsGateway>()
     private val routeEvents = MutableSharedFlow<NavKey>(extraBufferCapacity = 1)
-    private var bookInfoVariableSetter: ((String, String?) -> Unit)? = null
     private var shouldApplyDefaultToRead = true
     private var restoredReadBookRoute: MainRouteReadBook? = null
     private var latestBackStack: List<NavKey> = emptyList()
@@ -206,11 +237,11 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
 
         if (checkStartupRoute()) return
         val shouldAutoCheckUpdate = startupUpdateCheckGate.consume(
-            OtherConfig.autoCheckUpdateOnStart
+            otherSettingsGateway.currentSettings.autoCheckUpdateOnStart
         )
 
         // 智能自启：如果上次是手动开启状态（web_service_auto 为 true），则自启
-        if (AppConfig.webServiceAutoStart) {
+        if (otherSettingsGateway.currentSettings.webServiceAutoStart) {
             WebService.startForeground(this)
         }
 
@@ -223,10 +254,9 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             backupSync()
             //自动更新书籍
             val isAutoRefreshedBook = savedInstanceState?.getBoolean("isAutoRefreshedBook") ?: false
-            if (AppConfig.autoRefreshBook && !isAutoRefreshedBook) {
+            if (otherSettingsGateway.currentSettings.autoRefresh && !isAutoRefreshedBook) {
                 viewModel.upAllBookToc()
             }
-            viewModel.postLoad()
             if (shouldAutoCheckUpdate) {
                 checkUpdateOnStart()
             }
@@ -245,7 +275,19 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
     override fun Content() {
         val orientation = resources.configuration.orientation
         val smallestWidthDp = resources.configuration.smallestScreenWidthDp
-        val tabletInterface = ThemeConfig.tabletInterface
+        val configuration = LocalAppUiConfiguration.current
+        val tabletInterface = configuration.appShell.tabletInterface
+        val defaultToReadFlow = remember(otherSettingsGateway) {
+            otherSettingsGateway.settings
+                .map { it.defaultToRead }
+                .distinctUntilChanged()
+        }
+        val defaultToRead by defaultToReadFlow.collectAsStateWithLifecycle(
+            otherSettingsGateway.currentSettings.defaultToRead,
+        )
+        val mangaSettings by mangaSettingsGateway.settings.collectAsStateWithLifecycle(
+            mangaSettingsGateway.currentSettings,
+        )
 
         val useRail = when (tabletInterface) {
             "always" -> true
@@ -255,15 +297,20 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
             else -> false
         }
 
-        val startRoutes = remember {
+        val startRoutes = remember(defaultToRead) {
             val resolved = MainNavigator.resolveStartRoute(intent)
             val hasExplicitStartRoute = intent?.hasExplicitStartRoute() == true
             when {
                 !hasExplicitStartRoute && restoredReadBookRoute != null -> {
                     arrayOf(MainRouteHome, restoredReadBookRoute!!)
                 }
-                shouldApplyDefaultToRead && OtherConfig.defaultToRead && resolved == MainRouteHome -> {
+                shouldApplyDefaultToRead &&
+                        defaultToRead &&
+                        resolved == MainRouteHome -> {
                     arrayOf(MainRouteHome, MainRouteReadBook())
+                }
+                resolved is MainRouteSourceLogin -> {
+                    arrayOf(MainRouteHome, resolved)
                 }
                 else -> {
                     arrayOf(resolved)
@@ -298,7 +345,10 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
                     rememberSaveableStateHolderNavEntryDecorator(),
                     rememberViewModelStoreNavEntryDecorator(),
                 ),
-                sceneStrategies = listOf(SinglePaneSceneStrategy()),
+                sceneStrategies = listOf(
+                    ModalOverlaySceneStrategy(),
+                    SinglePaneSceneStrategy(),
+                ),
                 transitionSpec = {
                     (slideIntoContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
@@ -348,6 +398,8 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
                 onBack = { MainNavigator.navigateBack(this@MainActivity, backStack) },
                 entryProvider = mainEntryProvider(
                     backStack = backStack,
+                    configuration = configuration,
+                    showMangaUi = mangaSettings.showMangaUi,
                     useRail = useRail,
                     sharedTransitionScope = this@SharedTransitionLayout,
                     onNavigateToRoute = { route ->
@@ -357,10 +409,11 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
                         )
                     },
                     onNavigateBack = { MainNavigator.navigateBack(this@MainActivity, backStack) },
-                    onRegisterVariableSetter = { setter -> bookInfoVariableSetter = setter }
                 )
             )
-            BackHandler(enabled = !AppConfig.isPredictiveBackEnabled) {
+            BackHandler(
+                enabled = !configuration.appShell.predictiveBackEnabled
+            ) {
                 MainNavigator.navigateBack(this@MainActivity, backStack)
             }
         }
@@ -444,7 +497,7 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
      * 备份同步
      */
     private fun backupSync() {
-        if (!AppConfig.autoCheckNewBackup) {
+        if (!backupSettingsGateway.currentSettings.autoCheckNewBackup) {
             return
         }
         lifecycleScope.launch {
@@ -469,7 +522,7 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        if (AppConfig.autoRefreshBook) {
+        if (otherSettingsGateway.currentSettings.autoRefresh) {
             outState.putBoolean("isAutoRefreshedBook", true)
         }
         val readRoute = latestBackStack.lastOrNull() as? MainRouteReadBook
@@ -562,9 +615,6 @@ open class MainActivity : BaseComposeActivity(), VariableDialog.Callback {
         }
     }
 
-    override fun setVariable(key: String, variable: String?) {
-        bookInfoVariableSetter?.invoke(key, variable)
-    }
 
 }
 

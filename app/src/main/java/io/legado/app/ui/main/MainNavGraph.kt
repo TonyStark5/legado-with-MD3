@@ -1,5 +1,6 @@
 package io.legado.app.ui.main
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,7 +11,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,7 +29,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import io.legado.app.R
-import io.legado.app.help.config.AppConfig
+import io.legado.app.domain.model.settings.AppUiConfiguration
 import io.legado.app.model.Download
 import io.legado.app.ui.about.AboutEffect
 import io.legado.app.ui.about.AboutScreen
@@ -44,21 +44,21 @@ import io.legado.app.ui.book.import.remote.RemoteBookRouteScreen
 import io.legado.app.ui.book.info.BookInfoRouteScreen
 import io.legado.app.ui.book.info.BookInfoViewModel
 import io.legado.app.ui.book.knowledge.BookCharacterDetailScreen
-import io.legado.app.ui.book.knowledge.CharacterDetailIntent
-import io.legado.app.ui.book.knowledge.CharacterAvatarCropDialog
 import io.legado.app.ui.book.knowledge.BookCharacterDetailViewModel
-import io.legado.app.ui.book.knowledge.BookCharacterNetworkScreen
-import io.legado.app.ui.book.knowledge.BookCharacterNetworkViewModel
 import io.legado.app.ui.book.knowledge.BookCharacterListScreen
 import io.legado.app.ui.book.knowledge.BookCharacterListViewModel
-import io.legado.app.ui.book.knowledge.BookKnowledgeDetailScreen
-import io.legado.app.ui.book.knowledge.BookKnowledgeDetailViewModel
-import io.legado.app.ui.book.knowledge.BookKnowledgeListScreen
-import io.legado.app.ui.book.knowledge.BookKnowledgeListViewModel
+import io.legado.app.ui.book.knowledge.BookCharacterNetworkScreen
+import io.legado.app.ui.book.knowledge.BookCharacterNetworkViewModel
 import io.legado.app.ui.book.knowledge.BookEventDetailScreen
 import io.legado.app.ui.book.knowledge.BookEventDetailViewModel
 import io.legado.app.ui.book.knowledge.BookEventListScreen
 import io.legado.app.ui.book.knowledge.BookEventListViewModel
+import io.legado.app.ui.book.knowledge.BookKnowledgeDetailScreen
+import io.legado.app.ui.book.knowledge.BookKnowledgeDetailViewModel
+import io.legado.app.ui.book.knowledge.BookKnowledgeListScreen
+import io.legado.app.ui.book.knowledge.BookKnowledgeListViewModel
+import io.legado.app.ui.book.knowledge.CharacterAvatarCropDialog
+import io.legado.app.ui.book.knowledge.CharacterDetailIntent
 import io.legado.app.ui.book.knowledge.deleteCharacterAvatar
 import io.legado.app.ui.book.knowledge.saveCharacterAvatar
 import io.legado.app.ui.book.manage.BookshelfManageRouteScreen
@@ -66,24 +66,32 @@ import io.legado.app.ui.book.read.ReadBookController
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.book.read.ReadBookRouteScreen
 import io.legado.app.ui.book.read.ReadBookViewModel
-import io.legado.app.ui.book.readaloud.casting.BookVoiceCastingScreen
-import io.legado.app.ui.book.readaloud.casting.BookVoiceCastingViewModel
-import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsScreen
-import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsViewModel
 import io.legado.app.ui.book.readRecord.ReadRecordOverviewRouteScreen
 import io.legado.app.ui.book.readRecord.ReadRecordRouteScreen
+import io.legado.app.ui.book.readaloud.cache.TtsCacheRouteScreen
+import io.legado.app.ui.book.readaloud.casting.BookVoiceCastingScreen
+import io.legado.app.ui.book.readaloud.casting.BookVoiceCastingViewModel
+import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsEffect
+import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsIntent
+import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsScreen
+import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsViewModel
 import io.legado.app.ui.book.search.SearchIntent
 import io.legado.app.ui.book.search.SearchRouteScreen
+import io.legado.app.ui.book.search.SearchScope
 import io.legado.app.ui.book.search.SearchViewModel
 import io.legado.app.ui.book.searchContent.SearchContentRouteScreen
 import io.legado.app.ui.book.searchContent.SearchContentViewModel
-import io.legado.app.ui.book.source.manage.BookSourceActivity
+import io.legado.app.ui.book.source.debug.BookSourceDebugRoute
+import io.legado.app.ui.book.source.debug.BookSourceDebugViewModel
+import io.legado.app.ui.book.source.edit.BookSourceEditRoute
+import io.legado.app.ui.book.source.edit.BookSourceEditViewModel
+import io.legado.app.ui.book.source.manage.BookSourceRouteScreen
 import io.legado.app.ui.config.ConfigNavScreen
 import io.legado.app.ui.config.ai.AiConfigRouteScreen
 import io.legado.app.ui.config.ai.AiModelEditRouteScreen
 import io.legado.app.ui.config.ai.AiProviderEditRouteScreen
-import io.legado.app.ui.config.ai.summary.AiSummaryConfigRouteScreen
 import io.legado.app.ui.config.ai.prompt.AiPromptConfigRouteScreen
+import io.legado.app.ui.config.ai.summary.AiSummaryConfigRouteScreen
 import io.legado.app.ui.config.backupConfig.BackupConfigRouteScreen
 import io.legado.app.ui.config.coverConfig.CoverAlbumManageRouteScreen
 import io.legado.app.ui.config.coverConfig.CoverConfigRouteScreen
@@ -96,14 +104,22 @@ import io.legado.app.ui.config.themeConfig.ThemeConfigRouteScreen
 import io.legado.app.ui.config.themeManage.ThemeManageRouteScreen
 import io.legado.app.ui.config.translation.TranslationConfigRouteScreen
 import io.legado.app.ui.highlightTagRule.HighlightTagRuleRouteScreen
+import io.legado.app.ui.login.SourceLoginIntent
+import io.legado.app.ui.login.SourceLoginRoute
+import io.legado.app.ui.login.SourceLoginType
+import io.legado.app.ui.login.SourceLoginViewModel
 import io.legado.app.ui.rss.article.MainRouteRssSort
 import io.legado.app.ui.rss.article.RssSortRouteScreen
 import io.legado.app.ui.rss.favorites.RssFavoritesRouteScreen
 import io.legado.app.ui.rss.read.MainRouteRssRead
 import io.legado.app.ui.rss.read.RssReadRouteScreen
+import io.legado.app.ui.rss.source.debug.RssSourceDebugRoute
+import io.legado.app.ui.rss.source.debug.RssSourceDebugViewModel
+import io.legado.app.ui.rss.source.edit.RssSourceEditRoute
+import io.legado.app.ui.rss.source.edit.RssSourceEditViewModel
+import io.legado.app.ui.rss.source.manage.RssSourceRouteScreen
 import io.legado.app.ui.rss.subscription.RuleSubRouteScreen
 import io.legado.app.utils.openUrl
-import io.legado.app.utils.startActivity
 import io.legado.app.utils.startActivityForBook
 import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.toggleSystemBar
@@ -118,12 +134,110 @@ import org.koin.core.parameter.parametersOf
 @OptIn(ExperimentalSharedTransitionApi::class)
 fun MainActivity.mainEntryProvider(
     backStack: MutableList<NavKey>,
+    configuration: AppUiConfiguration,
+    showMangaUi: Boolean,
     useRail: Boolean,
     sharedTransitionScope: SharedTransitionScope,
     onNavigateToRoute: (NavKey) -> Unit,
     onNavigateBack: () -> Unit,
-    onRegisterVariableSetter: (((String, String?) -> Unit)?) -> Unit
 ) = entryProvider {
+    entry<MainRouteSourceLogin>(
+        metadata = ModalOverlaySceneStrategy.modalOverlay(),
+    ) { route ->
+        val viewModel = koinViewModel<SourceLoginViewModel>(
+            key = "SourceLogin:${route.type}:${route.sourceKey}:${route.bookUrl}",
+        )
+        SourceLoginRoute(
+            request = SourceLoginIntent.Initialize(route.type, route.sourceKey, route.bookUrl),
+            viewModel = viewModel,
+            host = this@mainEntryProvider,
+            onBack = onNavigateBack,
+        )
+    }
+    entry<MainRouteBookSourceManage> {
+        BookSourceRouteScreen(
+            onBackClick = onNavigateBack,
+            onAddSource = { onNavigateToRoute(MainRouteBookSourceEdit()) },
+            onEditSource = { onNavigateToRoute(MainRouteBookSourceEdit(it)) },
+            onLoginSource = {
+                onNavigateToRoute(MainRouteSourceLogin(SourceLoginType.BookSource, it))
+            },
+            onSearchSource = { sourceUrl ->
+                onNavigateToRoute(MainRouteSearch(null, SearchScope(sourceUrl).toString()))
+            },
+            onDebugSource = { sourceUrl ->
+                onNavigateToRoute(MainRouteBookSourceDebug(sourceUrl))
+            },
+        )
+    }
+    entry<MainRouteBookSourceEdit> { route ->
+        val viewModel = koinViewModel<BookSourceEditViewModel>(
+            key = "BookSourceEdit:${route.sourceUrl.orEmpty()}",
+        )
+        BookSourceEditRoute(
+            sourceUrl = route.sourceUrl,
+            viewModel = viewModel,
+            onBack = { savedSourceUrl ->
+                if (backStack.size == 1) {
+                    savedSourceUrl?.let {
+                        this@mainEntryProvider.setResult(
+                            android.app.Activity.RESULT_OK,
+                            Intent().putExtra("origin", it),
+                        )
+                    }
+                    this@mainEntryProvider.finish()
+                } else onNavigateBack()
+            },
+            onLogin = {
+                onNavigateToRoute(MainRouteSourceLogin(SourceLoginType.BookSource, it))
+            },
+            onDebug = { onNavigateToRoute(MainRouteBookSourceDebug(it)) },
+            onSearch = { onNavigateToRoute(MainRouteSearch(null, it.toString())) },
+        )
+    }
+    entry<MainRouteRssSourceManage> {
+        RssSourceRouteScreen(
+            onBackClick = onNavigateBack,
+            onEditSource = { onNavigateToRoute(MainRouteRssSourceEdit(it.sourceUrl)) },
+            onAddSource = { onNavigateToRoute(MainRouteRssSourceEdit()) },
+        )
+    }
+    entry<MainRouteRssSourceEdit> { route ->
+        val viewModel = koinViewModel<RssSourceEditViewModel>(
+            key = "RssSourceEdit:${route.sourceUrl.orEmpty()}",
+        )
+        RssSourceEditRoute(
+            sourceUrl = route.sourceUrl,
+            viewModel = viewModel,
+            onBack = { savedSourceUrl ->
+                if (backStack.size == 1) {
+                    savedSourceUrl?.let {
+                        this@mainEntryProvider.setResult(
+                            android.app.Activity.RESULT_OK,
+                            Intent().putExtra("origin", it),
+                        )
+                    }
+                    this@mainEntryProvider.finish()
+                } else onNavigateBack()
+            },
+            onLogin = {
+                onNavigateToRoute(MainRouteSourceLogin(SourceLoginType.RssSource, it))
+            },
+            onDebug = { onNavigateToRoute(MainRouteRssSourceDebug(it)) },
+        )
+    }
+    entry<MainRouteBookSourceDebug> { route ->
+        val viewModel = koinViewModel<BookSourceDebugViewModel>(
+            key = "BookSourceDebug:${route.sourceUrl.orEmpty()}",
+        )
+        BookSourceDebugRoute(route.sourceUrl, viewModel, onNavigateBack)
+    }
+    entry<MainRouteRssSourceDebug> { route ->
+        val viewModel = koinViewModel<RssSourceDebugViewModel>(
+            key = "RssSourceDebug:${route.sourceUrl.orEmpty()}",
+        )
+        RssSourceDebugRoute(route.sourceUrl, viewModel, onNavigateBack)
+    }
     entry<MainRouteHome> {
         val mainViewModel = koinViewModel<MainViewModel>()
         val mainUiState by mainViewModel.uiState.collectAsStateWithLifecycle()
@@ -145,6 +259,9 @@ fun MainActivity.mainEntryProvider(
                     )
                 )
             },
+            onNavigateToScopedSearch = { scopeRaw ->
+                onNavigateToRoute(MainRouteSearch(key = null, scopeRaw = scopeRaw))
+            },
             onNavigateToRemoteImport = {
                 onNavigateToRoute(MainRouteImportRemote)
             },
@@ -156,6 +273,13 @@ fun MainActivity.mainEntryProvider(
             },
             onNavigateToBookCacheManage = {
                 onNavigateToRoute(MainRouteBookCacheManage)
+            },
+            onOpenBookshelfBook = { book ->
+                if (book.isAudio || (!book.isLocal && book.isImage && showMangaUi)) {
+                    this@mainEntryProvider.startActivityForBook(book)
+                } else {
+                    onNavigateToRoute(MainRouteReadBook(bookUrl = book.bookUrl))
+                }
             },
             onNavigateToBackupSettings = {
                 onNavigateToRoute(MainRouteSettingsBackup)
@@ -180,6 +304,21 @@ fun MainActivity.mainEntryProvider(
                         exploreUrl = exploreUrl
                     )
                 )
+            },
+            onNavigateToSourceLogin = { type, sourceUrl ->
+                onNavigateToRoute(MainRouteSourceLogin(type, sourceUrl))
+            },
+            onNavigateToBookSourceManage = {
+                onNavigateToRoute(MainRouteBookSourceManage)
+            },
+            onNavigateToBookSourceEdit = {
+                onNavigateToRoute(MainRouteBookSourceEdit(it))
+            },
+            onNavigateToRssSourceManage = {
+                onNavigateToRoute(MainRouteRssSourceManage)
+            },
+            onNavigateToRssSourceEdit = {
+                onNavigateToRoute(MainRouteRssSourceEdit(it))
             },
             onNavigateToRssSort = { sourceUrl, sortUrl, key ->
                 onNavigateToRoute(
@@ -398,6 +537,12 @@ fun MainActivity.mainEntryProvider(
         val controller = remember(readBookViewModel) {
             ReadBookController(this@mainEntryProvider, readBookViewModel)
         }
+        // ReadView 在首次组合时就会画一帧, 必须在它之前告诉 ViewModel 本路由要打开哪本书。
+        // 刻意用 remember 而非 LaunchedEffect：后者在组合之后才跑，赶不上首帧。
+        @Suppress("RememberReturnType")
+        remember(readBookViewModel, route) {
+            readBookViewModel.prepareCachedChapterFallback(route.bookUrl, route.chapterChanged)
+        }
         val lifecycleOwner = LocalLifecycleOwner.current
         val readIntent = remember(route) {
             MainActivity.createReadBookIntent(
@@ -430,12 +575,13 @@ fun MainActivity.mainEntryProvider(
             host = controller,
             controller = controller,
             onEffectsReady = { effectsReady.complete(Unit) },
-            onOpenSearch = { word, bookUrl ->
+            onOpenSearch = { word, bookUrl, autoFocus ->
                 onNavigateToRoute(
                     MainRouteSearchContent(
                         bookUrl = bookUrl,
                         searchWord = word,
-                        searchResultIndex = readBookViewModel.uiState.value.searchResultIndex
+                        searchResultIndex = readBookViewModel.uiState.value.searchResultIndex,
+                        autoFocus = autoFocus,
                     )
                 )
             },
@@ -443,7 +589,10 @@ fun MainActivity.mainEntryProvider(
                 onNavigateToRoute(MainRouteBookVoiceCasting(bookUrl))
             },
             onOpenTtsEnginesAndVoices = {
-                onNavigateToRoute(MainRouteCloudTtsEngines)
+                onNavigateToRoute(MainRouteCloudTtsEngines(route.bookUrl))
+            },
+            onOpenTtsCache = {
+                onNavigateToRoute(MainRouteTtsCache)
             },
         )
 
@@ -480,7 +629,7 @@ fun MainActivity.mainEntryProvider(
                 }
                 MainActivity.hasActiveReadBookRoute = false
                 controller.clearTts()
-                this@mainEntryProvider.toggleSystemBar(AppConfig.showStatusBar)
+                this@mainEntryProvider.toggleSystemBar(configuration.appShell.showStatusBar)
             }
         }
 
@@ -505,6 +654,7 @@ fun MainActivity.mainEntryProvider(
         )
         SearchContentRouteScreen(
             viewModel = viewModel,
+            autoFocus = route.autoFocus,
             onBack = { onNavigateBack() },
         )
     }
@@ -539,7 +689,7 @@ fun MainActivity.mainEntryProvider(
                 )
             },
             onOpenSourceManage = {
-                this@mainEntryProvider.startActivity<BookSourceActivity>()
+                onNavigateToRoute(MainRouteBookSourceManage)
             },
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = LocalNavAnimatedContentScope.current,
@@ -578,7 +728,11 @@ fun MainActivity.mainEntryProvider(
                         )
                     )
                 }
-            }
+            },
+            onEditSource = { onNavigateToRoute(MainRouteRssSourceEdit(it)) },
+            onLogin = {
+                onNavigateToRoute(MainRouteSourceLogin(SourceLoginType.RssSource, it))
+            },
         )
     }
 
@@ -684,7 +838,7 @@ fun MainActivity.mainEntryProvider(
                         fadeOut(animationSpec = tween(300))
             } else null
         } + NavDisplay.predictivePopTransitionSpec { _ ->
-            if (!AppConfig.isPredictiveBackEnabled) {
+            if (!configuration.appShell.predictiveBackEnabled) {
                 null
             } else {
                 val to = targetState.key
@@ -712,6 +866,12 @@ fun MainActivity.mainEntryProvider(
             onFinish = { _, _ -> onNavigateBack() },
             onOpenSearch = { keyword ->
                 onNavigateToRoute(MainRouteSearch(key = keyword))
+            },
+            onOpenBookSourceEdit = { sourceUrl ->
+                onNavigateToRoute(MainRouteBookSourceEdit(sourceUrl))
+            },
+            onOpenSourceLogin = { sourceUrl ->
+                onNavigateToRoute(MainRouteSourceLogin(SourceLoginType.BookSource, sourceUrl))
             },
             onOpenReader = { bookUrl, inBookshelf, chapterChanged ->
                 onNavigateToRoute(
@@ -746,9 +906,6 @@ fun MainActivity.mainEntryProvider(
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = LocalNavAnimatedContentScope.current,
             sharedCoverKey = route.sharedCoverKey ?: bookCoverSharedElementKey(route.bookUrl),
-            onRegisterVariableSetter = { setter ->
-                onRegisterVariableSetter(setter)
-            }
         )
     }
 
@@ -842,17 +999,52 @@ fun MainActivity.mainEntryProvider(
             onIntent = viewModel::onIntent,
             effects = viewModel.effects,
             onBack = { onNavigateBack() },
-            onManageCloudTts = { onNavigateToRoute(MainRouteCloudTtsEngines) },
+            onManageCloudTts = { onNavigateToRoute(MainRouteCloudTtsEngines(route.bookUrl)) },
         )
     }
 
-    entry<MainRouteCloudTtsEngines> {
+    entry<MainRouteCloudTtsEngines> { route ->
         val viewModel = koinViewModel<CloudTtsViewModel>()
+        LaunchedEffect(route.bookUrl) {
+            viewModel.onIntent(CloudTtsIntent.SetBookContext(route.bookUrl))
+        }
+        val context = LocalContext.current
+        val importLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri -> uri?.let { viewModel.onIntent(CloudTtsIntent.ImportHttpTtsFileSelected(it)) } }
+        val exportLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json")
+        ) { uri -> uri?.let { viewModel.onIntent(CloudTtsIntent.ExportHttpTtsFileSelected(it)) } }
+        LaunchedEffect(viewModel) {
+            viewModel.effects.collectLatest { effect ->
+                when (effect) {
+                    CloudTtsEffect.OpenHttpTtsImportPicker -> importLauncher.launch(
+                        arrayOf("application/json", "text/plain")
+                    )
+
+                    CloudTtsEffect.OpenHttpTtsExportPicker -> exportLauncher.launch("httpTTS.json")
+                    is CloudTtsEffect.OpenHttpTtsLogin -> onNavigateToRoute(
+                        MainRouteSourceLogin(
+                            type = SourceLoginType.HttpTts,
+                            sourceKey = effect.engineId.toString(),
+                        )
+                    )
+
+                    else -> Unit
+                }
+            }
+        }
         CloudTtsScreen(
             state = viewModel.uiState.collectAsStateWithLifecycle().value,
             onIntent = viewModel::onIntent,
             effects = viewModel.effects,
             onBack = { onNavigateBack() },
+        )
+    }
+
+    entry<MainRouteTtsCache> {
+        TtsCacheRouteScreen(
+            onBackClick = { onNavigateBack() },
         )
     }
 

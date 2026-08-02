@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import io.legado.app.data.repository.dataStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -101,6 +102,30 @@ object AppConfigStore {
     /** 批量写入（Restore 恢复备份等）：整批立即对读侧生效，单次 edit 落盘 */
     fun putAll(values: Map<String, Any?>) = requireCore().putAll(values)
 
+    /** 批量写入并等待 DataStore edit 完成；失败会回滚 overlay 并向调用方抛出。 */
+    suspend fun putAllAndAwait(values: Map<String, Any?>) =
+        requireCore().putAllAndAwait(values)
+
+    /**
+     * 基于当前生效快照原子更新设置。
+     * [transform] 必须是纯计算、快速且不挂起，不得在其中执行 IO 或回调外部状态。
+     */
+    fun <T> atomicUpdate(
+        read: (Preferences) -> T,
+        toPrefMap: (T) -> Map<String, Any?>,
+        transform: (T) -> T,
+    ) = requireCore().atomicUpdate(read, toPrefMap, transform)
+
+    /**
+     * 原子更新设置并等待 DataStore edit 完成。
+     * [transform] 必须是纯计算、快速且不挂起。
+     */
+    suspend fun <T> atomicUpdateAndAwait(
+        read: (Preferences) -> T,
+        toPrefMap: (T) -> Map<String, Any?>,
+        transform: (T) -> T,
+    ) = requireCore().atomicUpdateAndAwait(read, toPrefMap, transform)
+
     // 订阅：替代 SP 监听器的统一入口，值不存在时发 null
     fun observeString(key: String): Flow<String?> = observe { it.compatDsString(key) }
     fun observeInt(key: String): Flow<Int?> = observe { it.compatDsInt(key) }
@@ -163,14 +188,84 @@ internal class PendingOverlayCore(
         }
     }
 
-    fun putAll(values: Map<String, Any?>) {
+    fun putAll(values: Map<String, Any?>) = enqueueAll(values, completion = null)
+
+    suspend fun putAllAndAwait(values: Map<String, Any?>) {
         if (values.isEmpty()) return
+        val completion = CompletableDeferred<Result<Unit>>()
+        enqueueAll(values, completion)
+        completion.await().getOrThrow()
+    }
+
+    /**
+     * 读取 overlay、计算 transform 与差量入队均在同一临界区内完成。
+     * transform 必须是纯计算、快速且不挂起。
+     */
+    fun <T> atomicUpdate(
+        read: (Preferences) -> T,
+        toPrefMap: (T) -> Map<String, Any?>,
+        transform: (T) -> T,
+    ) {
         synchronized(lock) {
-            val writes = values.mapValues { PendingWrite(it.value) }
-            pending.putAll(writes)
-            rebuild()
-            launchWrite {
-                runCatching { persistAll(values) }.onFailure { e ->
+            val values = atomicDiffLocked(read, toPrefMap, transform)
+            if (values.isNotEmpty()) enqueueAllLocked(values, completion = null)
+        }
+    }
+
+    /** [transform] 必须是纯计算、快速且不挂起。 */
+    suspend fun <T> atomicUpdateAndAwait(
+        read: (Preferences) -> T,
+        toPrefMap: (T) -> Map<String, Any?>,
+        transform: (T) -> T,
+    ) {
+        val completion = synchronized(lock) {
+            val values = atomicDiffLocked(read, toPrefMap, transform)
+            if (values.isEmpty()) {
+                null
+            } else {
+                CompletableDeferred<Result<Unit>>().also {
+                    enqueueAllLocked(values, completion = it)
+                }
+            }
+        }
+        completion?.await()?.getOrThrow()
+    }
+
+    private fun <T> atomicDiffLocked(
+        read: (Preferences) -> T,
+        toPrefMap: (T) -> Map<String, Any?>,
+        transform: (T) -> T,
+    ): Map<String, Any?> {
+        val current = read(_preferences.value)
+        val previous = toPrefMap(current)
+        return toPrefMap(transform(current)).filter { (key, value) -> previous[key] != value }
+    }
+
+    private fun enqueueAll(
+        values: Map<String, Any?>,
+        completion: CompletableDeferred<Result<Unit>>?,
+    ) {
+        if (values.isEmpty()) {
+            completion?.complete(Result.success(Unit))
+            return
+        }
+        synchronized(lock) {
+            enqueueAllLocked(values, completion)
+        }
+    }
+
+    /** 调用方必须已持有 [lock]。 */
+    private fun enqueueAllLocked(
+        values: Map<String, Any?>,
+        completion: CompletableDeferred<Result<Unit>>?,
+    ) {
+        val writes = values.mapValues { PendingWrite(it.value) }
+        pending.putAll(writes)
+        rebuild()
+        launchWrite {
+            runCatching { persistAll(values) }
+                .onSuccess { completion?.complete(Result.success(Unit)) }
+                .onFailure { e ->
                     synchronized(lock) {
                         var removed = false
                         writes.forEach { (key, write) ->
@@ -182,8 +277,8 @@ internal class PendingOverlayCore(
                         if (removed) rebuild()
                         LogUtils.e("AppConfigStore", "批量保存设置失败: keys=${values.keys}\n${e.stackTraceStr}")
                     }
+                    completion?.complete(Result.failure(e))
                 }
-            }
         }
     }
 

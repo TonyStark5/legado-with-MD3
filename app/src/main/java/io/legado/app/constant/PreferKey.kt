@@ -11,6 +11,7 @@ object PreferKey {
     const val showUnread = "showUnread"
     const val showUnreadNew = "showUnreadNew"
     const val bookGroupStyle = "bookGroupStyle"
+    const val hideEmptyGroups = "hideEmptyGroups"
     const val useDefaultCover = "useDefaultCover"
     const val loadCoverOnlyWifi = "loadCoverOnlyWifi"
     const val coverShowName = "coverShowName"
@@ -160,7 +161,9 @@ object PreferKey {
     const val audioPlayWakeLock = "audioPlayWakeLock"
     const val readAloudWakeLock = "readAloudWakeLock"
     const val showReadAloudCapsule = "showReadAloudCapsule"
+    const val capsuleAutoCollapse = "capsuleAutoCollapse"
     const val defaultReadAloudInterface = "defaultReadAloudInterface"
+    const val readAloudPlayerBgMode = "readAloudPlayerBgMode"
     const val showLastUpdateTime = "showLastUpdateTime"
     const val showWaitUpCount = "showWaitUpCount"
     const val clearWebViewData = "clearWebViewData"
@@ -198,6 +201,13 @@ object PreferKey {
     const val composeEngine = "composeEngine"
     const val useMiuixMonet = "useMiuixMonet"
     const val containerOpacity = "containerOpacity"
+    const val overrideBaseCardCornerRadius = "overrideBaseCardCornerRadius"
+    const val baseCardCornerRadius = "baseCardCornerRadius"
+    const val overrideBaseCardBorder = "overrideBaseCardBorder"
+    const val baseCardBorderWidth = "baseCardBorderWidth"
+    const val baseCardBorderColor = "baseCardBorderColor"
+    const val baseCardBorderColorNight = "baseCardBorderColorNight"
+    const val disableSplicedColumnGroupCornerRadius = "disableSplicedColumnGroupCornerRadius"
     const val topBarOpacity = "topBarOpacity"
     const val bottomBarOpacity = "bottomBarOpacity"
     const val enableBlur = "enableBlur"
@@ -229,6 +239,13 @@ object PreferKey {
     const val labelContainerColorNight = "colorMD3SurfaceContainerLowNight"
     // 中间单线间隔设置
     const val enableItemDivider = "enableItemDivider"
+    const val enableContainerBackgroundImage = "enableContainerBackgroundImage"
+    const val appColumnBackgroundOpacity = "appColumnBackgroundOpacity"
+    const val glassCardBackgroundOpacity = "glassCardBackgroundOpacity"
+    const val largeContainerBackgroundImageLight = "largeContainerBackgroundImageLight"
+    const val largeContainerBackgroundImageDark = "largeContainerBackgroundImageDark"
+    const val itemBackgroundImageLight = "itemBackgroundImageLight"
+    const val itemBackgroundImageDark = "itemBackgroundImageDark"
     const val itemDividerWidth = "itemDividerWidth"
     const val itemDividerLength = "itemDividerLength"
     const val itemDividerColor = "itemDividerColor"
@@ -326,6 +343,7 @@ object PreferKey {
     const val readMenuTopBarLiquidGlassButtons = "readMenuTopBarLiquidGlassButtons"
     const val readMenuTopBarTitleCapsule = "readMenuTopBarTitleCapsule"
     const val readMenuBottomBarLiquidGlassButtons = "readMenuBottomBarLiquidGlassButtons"
+    const val readMenuFloatingIconLiquidGlass = "readMenuFloatingIconLiquidGlass"
     const val readMenuTopBarBlurStyle = "readMenuTopBarBlurStyle"
     const val readMenuBottomBarBlurStyle = "readMenuBottomBarBlurStyle"
     const val readMenuBlurRadius = "readMenuBlurRadius"
@@ -342,6 +360,8 @@ object PreferKey {
     const val titleBarIconPosition = "titleBarIconPosition"
     const val showTitleBarIcons = "showTitleBarIcons"
     const val showMenuIcon = "showMenuIcon"
+    const val titleBarCompact = "titleBarCompact"
+    const val moreActionsConfig = "moreActionsConfig"
     const val disableReturnKey = "disableReturnKey"
     const val selectText = "selectText"
     //我在干什么
@@ -364,9 +384,11 @@ object PreferKey {
     const val bookshelfShowLatestChapter = "bookshelfShowLatestChapter"
     const val bookshelfIntroMaxLines = "bookshelfIntroMaxLines"
     const val sliderVibrator = "sliderVibrator"
+    const val useNewTocSheet = "useNewTocSheet"
     const val selectVibrator = "selectVibrator"
     const val audioCacheCleanTime = "audioCacheCleanTime"
     const val audioPreDownloadNum = "audioPreDownloadNum"
+    const val ttsPreSynthesisConcurrency = "ttsPreSynthesisConcurrency"
     const val ttsParagraphInterval = "ttsParagraphInterval"
     const val customTagColors = "customTagColors"
     const val enableCustomTagColors = "enableCustomTagColors"
@@ -399,6 +421,7 @@ object PreferKey {
     // Eye Protection
     const val eyeProtectionEnabled = "eyeProtectionEnabled"
     const val colorTemperature = "colorTemperature"
+    const val eyeProtectionAutoNight = "eyeProtectionAutoNight"
     const val eyeProtectionSchedule = "eyeProtectionSchedule"
     const val eyeProtectionStartTime = "eyeProtectionStartTime"
     const val eyeProtectionEndTime = "eyeProtectionEndTime"
@@ -413,4 +436,11 @@ object ReadMenuBlurMode {
 object ReadMenuBlurStyle {
     const val Solid = 0
     const val Progressive = 1
+}
+
+object ReadAloudBgMode {
+    const val Solid = 0
+    const val Blur = 1
+    const val FlowingLight = 2
+    const val Transparent = 3
 }

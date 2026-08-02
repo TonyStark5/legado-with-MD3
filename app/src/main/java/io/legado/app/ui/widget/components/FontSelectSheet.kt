@@ -17,9 +17,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import io.legado.app.R
-import io.legado.app.ui.widget.components.button.series.SmallPlainButton
+import io.legado.app.ui.theme.ProvideAppDensity
+import io.legado.app.ui.widget.components.button.series.MediumTonalButton
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.utils.FileDoc
+import io.legado.app.utils.isContentScheme
+import java.io.File
 
 @Composable
 fun FontSelectSheet(
@@ -41,7 +44,12 @@ fun FontSelectSheet(
     val selectedFontName = remember(selectedFontPath) {
         selectedFontPath?.let {
             runCatching {
-                DocumentFile.fromSingleUri(context, it.toUri())?.name
+                val uri = it.toUri()
+                if (uri.isContentScheme()) {
+                    DocumentFile.fromSingleUri(context, uri)?.name
+                } else {
+                    File(uri.path ?: it).name
+                }
             }.getOrNull()
         }
     }
@@ -58,18 +66,20 @@ fun FontSelectSheet(
                     expanded = showTypefaceMenu,
                     onDismissRequest = { showTypefaceMenu = false },
                 ) {
-                    systemTypefaces.forEachIndexed { index, name ->
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                onSelectSystemTypeface(index)
-                                showTypefaceMenu = false
-                                onDismissRequest()
-                            },
-                        )
+                    ProvideAppDensity {
+                        systemTypefaces.forEachIndexed { index, name ->
+                            DropdownMenuItem(
+                                text = { Text(name) },
+                                onClick = {
+                                    onSelectSystemTypeface(index)
+                                    showTypefaceMenu = false
+                                    onDismissRequest()
+                                },
+                            )
+                        }
                     }
                 }
-                SmallPlainButton(
+                MediumTonalButton(
                     onClick = { showTypefaceMenu = true },
                     icon = Icons.Default.TextFields,
                     contentDescription = stringResource(R.string.select_font),
@@ -77,7 +87,7 @@ fun FontSelectSheet(
             }
         },
         endAction = {
-            SmallPlainButton(
+            MediumTonalButton(
                 onClick = onOpenFolderPicker,
                 icon = folderIcon,
                 contentDescription = folderContentDescription

@@ -42,6 +42,7 @@ import io.legado.app.utils.applyOpenTint
 import io.legado.app.utils.applyTint
 import io.legado.app.utils.disableAutoFill
 import io.legado.app.utils.fullScreen
+import io.legado.app.utils.isNightMode
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.hideSoftInput
 import io.legado.app.utils.LogUtils
@@ -160,8 +161,11 @@ abstract class BaseActivity<VB : ViewBinding>(
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         val previous = lastPlatformConfiguration
+        appUiConfigurationGateway.synchronizeSystemDarkTheme(newConfig.isNightMode)
         super.onConfigurationChanged(newConfig)
         lastPlatformConfiguration = Configuration(newConfig)
+        // 窗口尺寸变化会重置 resources 配置里的字体缩放，需要重新应用。
+        AppContextWrapper.applyFont(this)
         appLocaleGateway.synchronizeFromPlatform()
 
         val platformDiff = AppUiConfigurationDiff(

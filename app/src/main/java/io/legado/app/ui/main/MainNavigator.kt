@@ -3,6 +3,7 @@ package io.legado.app.ui.main
 import android.app.Activity
 import android.content.Intent
 import androidx.navigation3.runtime.NavKey
+import io.legado.app.model.ReadBook
 import io.legado.app.ui.rss.article.MainRouteRssSort
 import io.legado.app.ui.rss.read.MainRouteRssRead
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +24,23 @@ object MainNavigator {
         val currentRoute = backStack.lastOrNull()
         if (currentRoute == route) return
 
+        // 导航动画和阅读页组合要花几百毫秒, 这段时间足够把正文读出来并排版好
+        if (route is MainRouteReadBook && !route.chapterChanged) {
+            route.bookUrl?.let { ReadBook.prefetchForOpen(it) }
+        }
+
         when (route) {
+            is MainRouteSourceLogin -> {
+                backStack.add(route)
+            }
+
+            MainRouteBookSourceManage,
+            is MainRouteBookSourceEdit,
+            MainRouteRssSourceManage,
+            is MainRouteRssSourceEdit,
+            is MainRouteBookSourceDebug,
+            is MainRouteRssSourceDebug -> backStack.add(route)
+
             MainRouteHome -> {
                 backStack.clear()
                 backStack.add(MainRouteHome)
@@ -126,7 +143,8 @@ object MainNavigator {
             is MainRouteBookCharacterNetwork,
             is MainRouteBookCharacterList,
             is MainRouteBookVoiceCasting,
-            MainRouteCloudTtsEngines,
+            is MainRouteCloudTtsEngines,
+            MainRouteTtsCache,
             is MainRouteBookKnowledgeList,
             is MainRouteBookKnowledgeDetail,
             is MainRouteBookEventList,
@@ -137,7 +155,8 @@ object MainNavigator {
                     currentRoute is MainRouteBookCharacterNetwork ||
                     currentRoute is MainRouteBookCharacterList ||
                     currentRoute is MainRouteBookVoiceCasting ||
-                    currentRoute == MainRouteCloudTtsEngines ||
+                    currentRoute is MainRouteCloudTtsEngines ||
+                    currentRoute == MainRouteTtsCache ||
                     currentRoute is MainRouteBookKnowledgeList ||
                     currentRoute is MainRouteBookKnowledgeDetail ||
                     currentRoute is MainRouteBookEventList ||
@@ -305,6 +324,31 @@ object MainNavigator {
     private fun resolveStartRoute(route: String?, intent: Intent?): MainRoute {
         return when (route) {
             MainRouteConst.ROUTE_MAIN -> MainRouteHome
+            MainRouteConst.ROUTE_SOURCE_LOGIN -> MainRouteSourceLogin(
+                type = intent?.getStringExtra(MainIntent.EXTRA_SOURCE_LOGIN_TYPE)
+                    ?.let { runCatching { io.legado.app.ui.login.SourceLoginType.valueOf(it) }.getOrNull() }
+                    ?: io.legado.app.ui.login.SourceLoginType.BookSource,
+                sourceKey = intent?.getStringExtra(MainIntent.EXTRA_SOURCE_LOGIN_KEY),
+                bookUrl = intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL),
+            )
+
+            MainRouteConst.ROUTE_BOOK_SOURCE_MANAGE -> MainRouteBookSourceManage
+            MainRouteConst.ROUTE_BOOK_SOURCE_EDIT -> MainRouteBookSourceEdit(
+                intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
+            )
+
+            MainRouteConst.ROUTE_RSS_SOURCE_MANAGE -> MainRouteRssSourceManage
+            MainRouteConst.ROUTE_RSS_SOURCE_EDIT -> MainRouteRssSourceEdit(
+                intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
+            )
+
+            MainRouteConst.ROUTE_BOOK_SOURCE_DEBUG -> MainRouteBookSourceDebug(
+                intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
+            )
+
+            MainRouteConst.ROUTE_RSS_SOURCE_DEBUG -> MainRouteRssSourceDebug(
+                intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
+            )
             MainRouteConst.ROUTE_SETTINGS -> MainRouteSettings
             MainRouteConst.ROUTE_SETTINGS_OTHER -> MainRouteSettingsOther
             MainRouteConst.ROUTE_SETTINGS_READ -> MainRouteSettingsRead
@@ -314,6 +358,7 @@ object MainNavigator {
             MainRouteConst.ROUTE_SETTINGS_AI -> MainRouteSettingsAi
             MainRouteConst.ROUTE_AI_CHAT -> MainRouteAiChat
             MainRouteConst.ROUTE_SETTINGS_CUSTOM_THEME -> MainRouteSettingsCustomTheme
+            MainRouteConst.ROUTE_SETTINGS_LAB_CONFIG -> MainRouteSettingsLabConfig
             MainRouteConst.ROUTE_SETTINGS_DOWNLOAD_CACHE -> MainRouteSettingsDownloadCache
             MainRouteConst.ROUTE_SETTINGS_TRANSLATION -> MainRouteSettingsTranslation
             MainRouteConst.ROUTE_IMPORT_LOCAL -> MainRouteImportLocal

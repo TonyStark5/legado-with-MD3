@@ -7,6 +7,7 @@ import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.SearchContentHistory
 import io.legado.app.data.repository.BookRepository
 import io.legado.app.data.repository.SearchContentRepository
+import io.legado.app.domain.gateway.ThemeSettingsGateway
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -34,6 +35,7 @@ data class SearchContentUiState(
     val searchHistory: ImmutableList<SearchContentHistory> = persistentListOf(),
     val historyOnlyThisBook: Boolean = true,
     val shouldAutoScroll: Boolean = false,
+    val isEInkMode: Boolean = false,
 )
 
 sealed interface SearchContentIntent {
@@ -66,6 +68,7 @@ class SearchContentViewModel(
     private val searchResultIndex: Int,
     private val bookRepository: BookRepository,
     private val searchContentRepository: SearchContentRepository,
+    private val themeSettingsGateway: ThemeSettingsGateway,
 ) : ViewModel() {
     private val restoredSession = if (initialSearchWord == null) {
         searchContentRepository.getLastSession(bookUrl)
@@ -77,6 +80,7 @@ class SearchContentViewModel(
             replaceEnabled = restoredSession?.replaceEnabled ?: false,
             regexReplace = restoredSession?.regexReplace ?: false,
             shouldAutoScroll = searchResultIndex > 0,
+            isEInkMode = themeSettingsGateway.currentSettings.appTheme == "4",
         )
     )
     val uiState = _uiState.asStateFlow()
@@ -86,9 +90,15 @@ class SearchContentViewModel(
 
     private var searchJob: Job? = null
     private var historyJob: Job? = null
+    private var resultOpened = false
 
     init {
         initBook()
+        viewModelScope.launch {
+            themeSettingsGateway.settings.collect { settings ->
+                _uiState.update { it.copy(isEInkMode = settings.appTheme == "4") }
+            }
+        }
     }
 
     fun onIntent(intent: SearchContentIntent) {
@@ -162,6 +172,7 @@ class SearchContentViewModel(
         val state = _uiState.value
         if (state.searchQuery.isBlank()) {
             searchContentRepository.clearSession(bookUrl)
+            SearchContentResult.clearResults(bookUrl)
             _uiState.update {
                 it.copy(isSearching = false, searchResults = persistentListOf(), error = null)
             }
@@ -199,7 +210,7 @@ class SearchContentViewModel(
 
     private fun leaveSearch() {
         searchJob?.cancel()
-        if (_uiState.value.searchQuery.isBlank()) SearchContentResult.clearResults(bookUrl)
+        if (!resultOpened) SearchContentResult.clearResults(bookUrl)
         _uiState.update {
             it.copy(
                 searchQuery = "",
@@ -215,6 +226,7 @@ class SearchContentViewModel(
         val results = _uiState.value.searchResults
         val index = results.indexOf(result)
         if (index < 0) return
+        resultOpened = true
         SearchContentResult.emitResult(
             SearchContentResult.Result(
                 bookUrl = bookUrl,

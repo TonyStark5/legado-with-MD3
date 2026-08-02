@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timeline
@@ -81,8 +80,8 @@ import coil.compose.AsyncImage
 import coil.size.Size
 import io.legado.app.R
 import io.legado.app.constant.BookType
-import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.entities.BookGroup
+import io.legado.app.data.entities.SearchBook
 import io.legado.app.ui.main.homepage.modules.BannerModule
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.LocalHazeState
@@ -105,6 +104,7 @@ import io.legado.app.ui.widget.components.card.HighlightTagRow
 import io.legado.app.ui.widget.components.card.TextCard
 import io.legado.app.ui.widget.components.changeSource.ChangeSourceSheet
 import io.legado.app.ui.widget.components.icon.AppIcon
+import io.legado.app.ui.widget.components.icon.AppIcons
 import io.legado.app.ui.widget.components.image.cover.BookCoverImage
 import io.legado.app.ui.widget.components.image.cover.CoilBookCover
 import io.legado.app.ui.widget.components.image.cover.usesDefaultBookCover
@@ -120,6 +120,7 @@ import io.legado.app.ui.widget.components.topbar.M3GlassScrollBehavior
 import io.legado.app.ui.widget.components.topbar.MiuixGlassScrollBehavior
 import io.legado.app.ui.widget.components.topbar.TopBarActionButton
 import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
+import io.legado.app.ui.widget.components.variable.VariableEditorSheet
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
@@ -230,7 +231,6 @@ private fun BookInfoScreenContent(
         M3GlassScrollBehavior(TopAppBarDefaults.exitUntilCollapsedScrollBehavior())
     }
     val listState = rememberLazyListState()
-    var showMenu by rememberSaveable { mutableStateOf(false) }
 
     AppScaffold(
         modifier = Modifier
@@ -239,8 +239,6 @@ private fun BookInfoScreenContent(
         topBar = {
             BookInfoTransparentTopAppBar(
                 state = state,
-                showMenu = showMenu,
-                onShowMenuChange = { showMenu = it },
                 onMenuAction = { onIntent(BookInfoIntent.MenuAction(it)) },
                 onBackPressed = onBack,
                 scrollBehavior = scrollBehavior,
@@ -453,6 +451,12 @@ private fun BookInfoScreenContent(
                 )
             },
         )
+        is BookInfoSheet.Variable -> VariableEditorSheet(
+            state = sheet.editor.takeIf { currentSheet is BookInfoSheet.Variable },
+            onValueChange = { onIntent(BookInfoIntent.UpdateVariable(it)) },
+            onSave = { onIntent(BookInfoIntent.SaveVariable) },
+            onDismissRequest = { onIntent(BookInfoIntent.DismissSheet) },
+        )
     }
 
     BookInfoDialogs(state = state, onIntent = onIntent)
@@ -489,8 +493,6 @@ private fun BookInfoColorTheme(
 @Composable
 private fun BookInfoTransparentTopAppBar(
     state: BookInfoUiState,
-    showMenu: Boolean,
-    onShowMenuChange: (Boolean) -> Unit,
     onMenuAction: (BookInfoMenuAction) -> Unit,
     onBackPressed: () -> Unit,
     scrollBehavior: GlassTopAppBarScrollBehavior,
@@ -520,8 +522,6 @@ private fun BookInfoTransparentTopAppBar(
             actions = {
                 BookInfoTopBarActions(
                     state = state,
-                    showMenu = showMenu,
-                    onShowMenuChange = onShowMenuChange,
                     onMenuAction = onMenuAction,
                 )
             },
@@ -542,8 +542,6 @@ private fun BookInfoTransparentTopAppBar(
                     ) {
                         BookInfoTopBarActions(
                             state = state,
-                            showMenu = showMenu,
-                            onShowMenuChange = onShowMenuChange,
                             onMenuAction = onMenuAction,
                         )
                     }
@@ -629,8 +627,6 @@ private fun resolveBookInfoBackdropStyle(
 @Composable
 private fun BookInfoTopBarActions(
     state: BookInfoUiState,
-    showMenu: Boolean,
-    onShowMenuChange: (Boolean) -> Unit,
     onMenuAction: (BookInfoMenuAction) -> Unit,
 ) {
     if (state.inBookshelf) {
@@ -645,20 +641,35 @@ private fun BookInfoTopBarActions(
         imageVector = Icons.Default.Share,
         contentDescription = stringResource(R.string.share)
     )
-    TopBarActionButton(
-        onClick = { onShowMenuChange(true) },
-        imageVector = Icons.Default.MoreVert,
-        contentDescription = stringResource(R.string.more_actions)
-    )
-    BookInfoOverflowMenu(
-        expanded = showMenu,
-        onDismissRequest = { onShowMenuChange(false) },
+    BookInfoOverflowAction(
         state = state,
-        onMenuAction = {
-            onShowMenuChange(false)
-            onMenuAction(it)
-        }
+        onMenuAction = onMenuAction,
     )
+}
+
+@Composable
+private fun BookInfoOverflowAction(
+    state: BookInfoUiState,
+    onMenuAction: (BookInfoMenuAction) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        TopBarActionButton(
+            onClick = { expanded = true },
+            imageVector = AppIcons.MoreVert,
+            contentDescription = stringResource(R.string.more_actions),
+        )
+        BookInfoOverflowMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            state = state,
+            onMenuAction = {
+                expanded = false
+                onMenuAction(it)
+            },
+        )
+    }
 }
 
 @Composable
@@ -674,12 +685,14 @@ private fun BookInfoBackdrop(
         book.coverPath,
         book.origin,
         usesDefaultCover,
+        style,
     ) {
         BookInfoBackdropState(
             name = book.name,
             author = book.author,
             coverPath = if (usesDefaultCover) null else book.coverPath,
             sourceOrigin = if (usesDefaultCover) null else book.origin,
+            style = style,
         )
     }
     val seedOverlay = lerp(
@@ -692,12 +705,12 @@ private fun BookInfoBackdrop(
             .fillMaxSize()
             .clearAndSetSemantics { }
     ) {
-        if (style.showCover) {
-            Crossfade(
-                targetState = backdropState,
-                animationSpec = tween(800),
-                label = "BackdropCrossfade"
-            ) { currentBook ->
+        Crossfade(
+            targetState = backdropState,
+            animationSpec = tween(800),
+            label = "BackdropCrossfade"
+        ) { currentBook ->
+            if (currentBook.style.showCover) {
                 BookCoverImage(
                     name = currentBook.name,
                     author = currentBook.author,
@@ -708,7 +721,7 @@ private fun BookInfoBackdrop(
                         .fillMaxWidth()
                         .height(480.dp)
                         .then(
-                            if (style.blurCover) {
+                            if (currentBook.style.blurCover) {
                                 Modifier.blur(24.dp)
                             } else {
                                 Modifier
@@ -762,6 +775,7 @@ private data class BookInfoBackdropState(
     val author: String,
     val coverPath: String?,
     val sourceOrigin: String?,
+    val style: BookInfoBackdropStyle,
 )
 
 @Composable

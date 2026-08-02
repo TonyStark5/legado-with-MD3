@@ -15,21 +15,26 @@ import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.BookType
 import io.legado.app.constant.EventBus
-import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.entities.readRecord.ReadRecordTimelineDay
-import io.legado.app.domain.gateway.BookKnowledgeGateway
 import io.legado.app.data.repository.BookGroupRepository
+import io.legado.app.data.repository.BookRepository
+import io.legado.app.data.repository.BookSourceRepository
+import io.legado.app.data.repository.HighlightTagRuleRepository
 import io.legado.app.data.repository.ReadRecordRepository
 import io.legado.app.data.repository.RemoteBookRepository
-import io.legado.app.domain.usecase.ChangeBookSourceUseCase
-import io.legado.app.domain.gateway.ThemeSettingsGateway
+import io.legado.app.data.repository.SearchRepository
+import io.legado.app.domain.gateway.BookKnowledgeGateway
 import io.legado.app.domain.gateway.CoverSettingsGateway
 import io.legado.app.domain.gateway.OtherSettingsGateway
-import io.legado.app.domain.gateway.OtherSettingsUpdate
+import io.legado.app.domain.gateway.ThemeSettingsGateway
+import io.legado.app.domain.model.settings.CoverSettings
+import io.legado.app.domain.model.settings.OtherSettings
+import io.legado.app.domain.model.settings.ThemeSettings
+import io.legado.app.domain.usecase.ChangeBookSourceUseCase
 import io.legado.app.domain.usecase.ChangeSourceMigrationOptions
 import io.legado.app.domain.usecase.ClearBookCacheUseCase
 import io.legado.app.exception.NoBooksDirException
@@ -62,6 +67,7 @@ import io.legado.app.ui.main.MainIntent
 import io.legado.app.ui.widget.components.image.cover.buildCoverImageRequest
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.GSON
+import io.legado.app.utils.HtmlFormatter
 import io.legado.app.utils.ImageSaveUtils
 import io.legado.app.utils.UrlUtil
 import io.legado.app.utils.fromJsonArray
@@ -79,12 +85,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,6 +105,10 @@ class BookInfoViewModel(
     private val changeBookSourceUseCase: ChangeBookSourceUseCase,
     private val clearBookCacheUseCase: ClearBookCacheUseCase,
     private val bookGroupRepository: BookGroupRepository,
+    private val bookRepository: BookRepository,
+    private val bookSourceRepository: BookSourceRepository,
+    private val searchRepository: SearchRepository,
+    private val highlightTagRuleRepository: HighlightTagRuleRepository,
     private val imageLoader: ImageLoader,
     private val bookKnowledgeGateway: BookKnowledgeGateway,
     private val themeSettingsGateway: ThemeSettingsGateway,
@@ -106,45 +118,32 @@ class BookInfoViewModel(
 
     val allGroups = bookGroupRepository.flowSelect().map { it.toImmutableList() }
 
-    private val _uiState = MutableStateFlow(BookInfoUiState())
-    val uiState = _uiState.asStateFlow()
+    // 仅保存“每本书/屏幕”状态；外观与其他设置不在此存储，避免整体重置时被抹掉。
+    private val _screenState = MutableStateFlow(BookInfoUiState())
+
+    // 设置类字段始终从各自 gateway（唯一 SSOT）派生叠加，重置屏幕状态无法影响它们。
+    val uiState: StateFlow<BookInfoUiState> = combine(
+        _screenState,
+        themeSettingsGateway.settings,
+        coverSettingsGateway.settings,
+        otherSettingsGateway.settings,
+    ) { screen, theme, cover, other ->
+        screen.withSettings(theme, cover, other)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = BookInfoUiState().withSettings(
+            themeSettingsGateway.currentSettings,
+            coverSettingsGateway.currentSettings,
+            otherSettingsGateway.currentSettings,
+        ),
+    )
 
     private val _effects = MutableSharedFlow<BookInfoEffect>(extraBufferCapacity = 8)
     val effects = _effects.asSharedFlow()
 
     init {
         collectEventBus()
-        collectAppearanceSettings()
-        collectOtherSettings()
-    }
-
-    private fun collectAppearanceSettings() {
-        viewModelScope.launch {
-            combine(
-                themeSettingsGateway.settings,
-                coverSettingsGateway.settings,
-            ) { theme, cover -> theme to cover }
-                .collectLatest { (theme, cover) ->
-                    _uiState.update {
-                        it.copy(
-                            bookInfoFollowCoverColor = theme.bookInfoFollowCoverColor,
-                            bookInfoNetworkCoverBackground = theme.bookInfoNetworkCoverBackground,
-                            bookInfoDefaultCoverBackground = theme.bookInfoDefaultCoverBackground,
-                            loadCoverOnlyOnWifi = cover.loadOnlyOnWifi,
-                            defaultCover = cover.defaultCover,
-                            defaultCoverDark = cover.defaultCoverDark,
-                        )
-                    }
-                }
-        }
-    }
-
-    private fun collectOtherSettings() {
-        viewModelScope.launch {
-            otherSettingsGateway.settings.collectLatest { settings ->
-                _uiState.update { it.copy(showMangaUi = settings.showMangaUi) }
-            }
-        }
     }
 
     private fun collectEventBus() {
@@ -220,7 +219,6 @@ class BookInfoViewModel(
     ) {
         val current = currentBook
         if (current != null) return
-        _uiState.value = BookInfoUiState() // 立即重置 UI 状态
         currentBook = if (!name.isNullOrBlank() && !author.isNullOrBlank()) {
             Book(
                 bookUrl = bookUrl,
@@ -234,27 +232,17 @@ class BookInfoViewModel(
         } else {
             null
         }
-        currentChapterList = emptyList()
-        currentWebFiles = emptyList()
-        currentRelatedBooks = emptyList()
-        currentCharacters = emptyList()
-        currentKindLabels = emptyList()
-        currentGroupNames = null
-        currentHasCustomGroup = false
-        inBookshelf = false
-        bookSource = null
-        chapterChanged = false
         clearReadRecordObserve()
         relatedBooksLoadJob?.cancel()
         characterLoadJob?.cancel()
         syncUiState()
         execute {
-            val dbBook = appDb.bookDao.getBook(bookUrl)
+            val dbBook = bookRepository.getBook(bookUrl)
             if (dbBook != null) {
                 inBookshelf = !dbBook.isNotShelf
                 dbBook
             } else {
-                val searchBook = appDb.searchBookDao.getSearchBook(bookUrl)?.toBook()
+                val searchBook = searchRepository.getSearchBook(bookUrl)?.toBook()
                 if (searchBook != null) {
                     inBookshelf = false
                     searchBook
@@ -270,7 +258,7 @@ class BookInfoViewModel(
             val source = if (book.isLocal) {
                 null
             } else {
-                appDb.bookSourceDao.getBookSource(book.origin)
+                bookSourceRepository.getBookSource(book.origin)
             }
             upBook(book, source)
         }.onError {
@@ -282,13 +270,15 @@ class BookInfoViewModel(
     fun onIntent(intent: BookInfoIntent) {
         when (intent) {
             BookInfoIntent.DismissSheet -> dismissSheet()
+            is BookInfoIntent.UpdateVariable -> updateVariableDraft(intent.value)
+            BookInfoIntent.SaveVariable -> saveVariableDraft()
             BookInfoIntent.DismissDialog -> dismissDialog()
             is BookInfoIntent.MenuAction -> handleMenuAction(intent.action)
             is BookInfoIntent.AuthorClick -> onAuthorClick(intent.longClick)
             is BookInfoIntent.BookNameClick -> onBookNameClick(intent.longClick)
             BookInfoIntent.OriginClick -> onOriginClick()
             BookInfoIntent.DismissAppLogSheet -> {
-                _uiState.update { it.copy(showAppLogSheet = false) }
+                _screenState.update { it.copy(showAppLogSheet = false) }
             }
 
             BookInfoIntent.ReadClick -> onReadClick()
@@ -378,7 +368,7 @@ class BookInfoViewModel(
             BookInfoIntent.KnowledgeListClick -> openKnowledgeList()
             BookInfoIntent.EventListClick -> openEventList()
             is BookInfoIntent.SetDefaultBookTreeUri -> viewModelScope.launch {
-                otherSettingsGateway.update(OtherSettingsUpdate.DefaultBookTreeUri(intent.value))
+                otherSettingsGateway.update { it.copy(defaultBookTreeUri = intent.value) }
             }
         }
     }
@@ -390,7 +380,7 @@ class BookInfoViewModel(
     }
 
     fun showAppLog() {
-        _uiState.update { it.copy(showAppLogSheet = true) }
+        _screenState.update { it.copy(showAppLogSheet = true) }
     }
 
     fun refreshCurrentBook() {
@@ -401,7 +391,7 @@ class BookInfoViewModel(
 
     fun onSourceEdited() {
         currentBook?.let { book ->
-            bookSource = appDb.bookSourceDao.getBookSource(book.origin)
+            bookSource = bookSourceRepository.getBookSourceSync(book.origin)
             syncUiState()
             refreshBook(book)
         }
@@ -410,11 +400,11 @@ class BookInfoViewModel(
     fun onInfoEdited() {
         currentBook?.bookUrl?.let { bookUrl ->
             execute {
-                val book = appDb.bookDao.getBook(bookUrl) ?: return@execute null
+                val book = bookRepository.getBook(bookUrl) ?: return@execute null
                 val source = if (book.isLocal) {
                     null
                 } else {
-                    appDb.bookSourceDao.getBookSource(book.origin)
+                    bookSourceRepository.getBookSource(book.origin)
                 }
                 book to source
             }.onSuccess {
@@ -435,7 +425,7 @@ class BookInfoViewModel(
         execute {
             book.durChapterIndex = result.first
             book.durChapterPos = result.second
-            appDb.bookDao.update(book)
+            bookRepository.update(book)
             book
         }.onSuccess {
             currentBook = it
@@ -460,7 +450,7 @@ class BookInfoViewModel(
     fun refreshShelfState() {
         val bookUrl = currentBook?.bookUrl ?: return
         execute {
-            appDb.bookDao.getBook(bookUrl)
+            bookRepository.getBook(bookUrl)
         }.onSuccess { dbBook ->
             val nextInBookshelf = dbBook != null && !dbBook.isNotShelf
             if (nextInBookshelf) {
@@ -505,25 +495,27 @@ class BookInfoViewModel(
         syncUiState()
     }
 
-    fun requestSourceVariableDialog() {
+    fun requestSourceVariableSheet() {
         execute {
             val source = bookSource ?: throw NoStackTraceException("书源不存在")
             val comment = source.getDisplayVariableComment("源变量可在js中通过source.getVariable()获取")
             val variable = source.getVariable()
-            BookInfoEffect.ShowVariableDialog(
+            BookInfoSheet.Variable(
+                io.legado.app.ui.widget.components.variable.VariableEditorUiState(
                 title = context.getString(R.string.set_source_variable),
                 key = source.getKey(),
-                variable = variable,
+                    value = variable.orEmpty(),
                 comment = comment,
+                )
             )
         }.onSuccess {
-            emitEffect(it)
+            setSheet(it)
         }.onError {
             showMessage(it.localizedMessage ?: "书源不存在")
         }
     }
 
-    fun requestBookVariableDialog() {
+    fun requestBookVariableSheet() {
         execute {
             val source = bookSource ?: throw NoStackTraceException("书源不存在")
             val book = currentBook ?: throw NoStackTraceException("book is null")
@@ -531,14 +523,16 @@ class BookInfoViewModel(
             val comment = source.getDisplayVariableComment(
                 "书籍变量可在js中通过book.getVariable(\"custom\")获取"
             )
-            BookInfoEffect.ShowVariableDialog(
+            BookInfoSheet.Variable(
+                io.legado.app.ui.widget.components.variable.VariableEditorUiState(
                 title = context.getString(R.string.set_book_variable),
                 key = book.bookUrl,
-                variable = variable,
+                    value = variable.orEmpty(),
                 comment = comment,
+                )
             )
         }.onSuccess {
-            emitEffect(it)
+            setSheet(it)
         }.onError {
             showMessage(it.localizedMessage ?: "书源不存在")
         }
@@ -556,13 +550,26 @@ class BookInfoViewModel(
         }
     }
 
+    private fun updateVariableDraft(value: String) {
+        _screenState.update { state ->
+            val sheet = state.sheet as? BookInfoSheet.Variable ?: return@update state
+            state.copy(sheet = sheet.copy(editor = sheet.editor.copy(value = value)))
+        }
+    }
+
+    private fun saveVariableDraft() {
+        val editor = (_screenState.value.sheet as? BookInfoSheet.Variable)?.editor ?: return
+        setVariable(editor.key, editor.value)
+        dismissSheet()
+    }
+
     fun topBook() {
         currentBook?.let { book ->
             execute {
-                val minOrder = appDb.bookDao.minOrder
+                val minOrder = bookRepository.getMinOrder()
                 book.order = minOrder - 1
                 book.durChapterTime = System.currentTimeMillis()
-                appDb.bookDao.update(book)
+                bookRepository.update(book)
                 book
             }.onSuccess {
                 currentBook = it
@@ -577,8 +584,8 @@ class BookInfoViewModel(
         execute {
             setBusy(true)
             val newBook = remoteBookRepository.syncBookFromRemote(book)
-            appDb.bookDao.delete(book)
-            appDb.bookDao.insert(newBook)
+            bookRepository.delete(book)
+            bookRepository.insert(newBook)
             newBook
         }.onSuccess { newBook ->
             currentBook = newBook
@@ -679,16 +686,16 @@ class BookInfoViewModel(
         book ?: return
         execute {
             if (book.order == 0) {
-                book.order = appDb.bookDao.minOrder - 1
+                book.order = bookRepository.getMinOrder() - 1
             }
-            appDb.bookDao.getBook(book.name, book.author)?.let {
+            bookRepository.getBook(book.name, book.author)?.let {
                 book.durChapterIndex = it.durChapterIndex
                 book.durChapterPos = it.durChapterPos
                 book.durChapterTitle = it.durChapterTitle
             }
             book.save()
-            if (ReadBook.book?.isSameNameAuthor(book) == true) {
-                ReadBook.book = book
+            if (ReadBook.isCurrentBook(book)) {
+                ReadBook.replaceCurrentBook(book)
             } else if (AudioPlay.book?.isSameNameAuthor(book) == true) {
                 AudioPlay.book = book
             }
@@ -704,7 +711,7 @@ class BookInfoViewModel(
 
     fun saveChapterList(success: (() -> Unit)? = null) {
         execute {
-            appDb.bookChapterDao.insert(*currentChapterList.toTypedArray())
+            bookRepository.insertChapters(*currentChapterList.toTypedArray())
         }.onSuccess {
             success?.invoke()
         }
@@ -715,21 +722,21 @@ class BookInfoViewModel(
         execute {
             book.removeType(BookType.notShelf)
             if (book.order == 0) {
-                book.order = appDb.bookDao.minOrder - 1
+                book.order = bookRepository.getMinOrder() - 1
             }
-            appDb.bookDao.getBook(book.name, book.author)?.let {
+            bookRepository.getBook(book.name, book.author)?.let {
                 book.durChapterIndex = it.durChapterIndex
                 book.durChapterPos = it.durChapterPos
                 book.durChapterTitle = it.durChapterTitle
             }
-            if (ReadBook.book?.isSameNameAuthor(book) == true) {
-                ReadBook.book = book
+            if (ReadBook.isCurrentBook(book)) {
+                ReadBook.replaceCurrentBook(book)
             } else if (AudioPlay.book?.isSameNameAuthor(book) == true) {
                 AudioPlay.book = book
             }
             book.save()
             SourceCallBack.callBackBook(SourceCallBack.ADD_BOOK_SHELF, bookSource, book)
-            appDb.bookChapterDao.insert(*currentChapterList.toTypedArray())
+            bookRepository.insertChapters(*currentChapterList.toTypedArray())
             book
         }.onSuccess {
             currentBook = it
@@ -743,10 +750,10 @@ class BookInfoViewModel(
         execute {
             book.removeType(BookType.notShelf)
             if (book.order == 0) {
-                book.order = appDb.bookDao.minOrder - 1
+                book.order = bookRepository.getMinOrder() - 1
             }
-            appDb.bookDao.insert(book)
-            appDb.bookChapterDao.insert(*toc.toTypedArray())
+            bookRepository.insert(book)
+            bookRepository.insertChapters(*toc.toTypedArray())
             book
         }.onSuccess {
             if (currentBook?.bookUrl == it.bookUrl) {
@@ -825,7 +832,7 @@ class BookInfoViewModel(
             }
             WebBook.getBookInfo(scope, source, book, canReName = canReName)
                 .onSuccess(IO) { loadedBook ->
-                    val dbBook = appDb.bookDao.getBook(loadedBook.name, loadedBook.author)
+                    val dbBook = bookRepository.getBook(loadedBook.name, loadedBook.author)
                     if (!inBookshelf && dbBook != null && !dbBook.isNotShelf && dbBook.origin == loadedBook.origin) {
                         dbBook.updateTo(loadedBook)
                         inBookshelf = true
@@ -907,7 +914,7 @@ class BookInfoViewModel(
             loadBookInfo(book, runPreUpdateJs = inBookshelf, showLoading = false)
         } else {
             execute {
-                appDb.bookChapterDao.getChapterList(book.bookUrl)
+                bookRepository.getChapters(book.bookUrl)
             }.onSuccess { chapters ->
                 if (chapters.isNotEmpty()) {
                     currentChapterList = chapters
@@ -945,14 +952,14 @@ class BookInfoViewModel(
     private fun refreshMeta(book: Book) {
         execute {
             book.upKind()
-            val userGroupIds = appDb.bookGroupDao.idsSum
+            val userGroupIds = bookGroupRepository.getIdsSum()
             val groupAnd = userGroupIds and book.group
             val hasCustomGroup = book.group > 0L && groupAnd != 0L
-            val groupNames = appDb.bookGroupDao.getGroupNames(book.group).joinToString(",")
+            val groupNames = bookGroupRepository.getGroupNames(book.group).joinToString(",")
             val normalizedGroupNames = groupNames.ifBlank { null }
-            appDb.bookDao.update(book)
+            bookRepository.update(book)
             val finalKinds = book.getDisplayTagList()
-            val enabledRules = appDb.highlightTagRuleDao.getEnabled()
+            val enabledRules = highlightTagRuleRepository.getEnabled()
             val (highlighted, regular) = parseHighlightedTags(finalKinds, enabledRules)
             HighlightMeta(highlighted, regular, normalizedGroupNames, hasCustomGroup)
         }.onSuccess {
@@ -982,9 +989,9 @@ class BookInfoViewModel(
         if (book.isLocal) {
             execute(scope) {
                 LocalBook.getChapterList(book).also {
-                    appDb.bookDao.update(book)
-                    appDb.bookChapterDao.delByBook(book.bookUrl)
-                    appDb.bookChapterDao.insert(*it.toTypedArray())
+                    bookRepository.update(book)
+                    bookRepository.deleteChaptersByBook(book.bookUrl)
+                    bookRepository.insertChapters(*it.toTypedArray())
                     ReadBook.onChapterListUpdated(book)
                 }
             }.onSuccess {
@@ -1007,12 +1014,12 @@ class BookInfoViewModel(
             WebBook.getChapterList(scope, source, book, runPreUpdateJs)
                 .onSuccess(IO) { chapters ->
                     if (inBookshelf) {
-                        appDb.bookDao.replace(oldBook, book)
+                        bookRepository.replace(oldBook, book)
                         if (oldBook.bookUrl != book.bookUrl) {
                             BookHelp.updateCacheFolder(oldBook, book)
                         }
-                        appDb.bookChapterDao.delByBook(oldBook.bookUrl)
-                        appDb.bookChapterDao.insert(*chapters.toTypedArray())
+                        bookRepository.deleteChaptersByBook(oldBook.bookUrl)
+                        bookRepository.insertChapters(*chapters.toTypedArray())
                         ReadBook.onChapterListUpdated(book)
                     }
                     currentBook = book
@@ -1062,7 +1069,11 @@ class BookInfoViewModel(
     private fun onShelfClick() {
         val book = currentBook ?: return
         if (inBookshelf) {
-            showDialog(BookInfoDialog.DeleteBook(book.isLocal))
+            if (LocalConfig.bookInfoDeleteAlert) {
+                showDialog(BookInfoDialog.DeleteBook(book.isLocal))
+            } else {
+                deleteBook(LocalConfig.deleteBookOriginal)
+            }
         } else if (book.isWebFile) {
             setSheet(BookInfoSheet.WebFiles(openAfterImport = false))
         } else {
@@ -1117,7 +1128,7 @@ class BookInfoViewModel(
     private fun deleteBook(deleteOriginal: Boolean) {
         currentBook?.let { book ->
             LocalConfig.deleteBookOriginal = deleteOriginal
-            _uiState.update { it.copy(deleteOriginal = deleteOriginal) }
+            _screenState.update { it.copy(deleteOriginal = deleteOriginal) }
             SourceCallBack.callBackBook(SourceCallBack.DEL_BOOK_SHELF, bookSource, book)
             delBook(deleteOriginal) {
                 emitEffect(BookInfoEffect.Finish(resultCode = RESULT_OK))
@@ -1221,8 +1232,8 @@ class BookInfoViewModel(
             }
 
             BookInfoMenuAction.Top -> topBook()
-            BookInfoMenuAction.SetSourceVariable -> requestSourceVariableDialog()
-            BookInfoMenuAction.SetBookVariable -> requestBookVariableDialog()
+            BookInfoMenuAction.SetSourceVariable -> requestSourceVariableSheet()
+            BookInfoMenuAction.SetBookVariable -> requestBookVariableSheet()
             BookInfoMenuAction.CopyBookUrl -> emitEffect(
                 BookInfoEffect.RunSourceCallback(
                     event = SourceCallBack.CLICK_COPY_BOOK_URL,
@@ -1284,7 +1295,7 @@ class BookInfoViewModel(
     private fun onOriginClick() {
         val book = currentBook ?: return
         if (book.isLocal) return
-        if (!appDb.bookSourceDao.has(book.origin)) {
+        if (!bookSourceRepository.has(book.origin)) {
             showMessage(R.string.error_no_source)
             return
         }
@@ -1391,7 +1402,7 @@ class BookInfoViewModel(
             }.collectLatest { (totalTime, timelineDays) ->
                 currentReadRecordTotalTime = totalTime
                 currentReadRecordTimelineDays = timelineDays
-                _uiState.update {
+                _screenState.update {
                     it.copy(
                         readRecordTotalTime = currentReadRecordTotalTime,
                         readRecordTimelineDays = currentReadRecordTimelineDays
@@ -1414,7 +1425,7 @@ class BookInfoViewModel(
     }
 
     private fun setSheet(sheet: BookInfoSheet) {
-        _uiState.update { it.copy(sheet = sheet) }
+        _screenState.update { it.copy(sheet = sheet) }
     }
 
     private fun dismissDialog() {
@@ -1422,15 +1433,15 @@ class BookInfoViewModel(
     }
 
     private fun showDialog(dialog: BookInfoDialog?) {
-        _uiState.update { it.copy(dialog = dialog) }
+        _screenState.update { it.copy(dialog = dialog) }
     }
 
     private fun setBusy(isBusy: Boolean) {
-        _uiState.update { it.copy(isBusy = isBusy) }
+        _screenState.update { it.copy(isBusy = isBusy) }
     }
 
-    private fun syncUiState(isTocLoading: Boolean = _uiState.value.isTocLoading) {
-        _uiState.update {
+    private fun syncUiState(isTocLoading: Boolean = _screenState.value.isTocLoading) {
+        _screenState.update {
             it.copy(
                 book = currentBook?.toBookInfoBookUi(),
                 hasChapters = currentChapterList.isNotEmpty(),
@@ -1537,7 +1548,7 @@ class BookInfoViewModel(
             }
             if (currentBook?.bookUrl != bookUrl) return@launch
             currentCharacters = characters
-            _uiState.update {
+            _screenState.update {
                 it.copy(characters = currentCharacters.toImmutableList())
             }
         }
@@ -1564,7 +1575,7 @@ class BookInfoViewModel(
             }
             if (currentBook?.bookUrl != bookUrl) return@launch
             currentKnowledgeEntries = entries
-            _uiState.update {
+            _screenState.update {
                 it.copy(knowledgeEntries = currentKnowledgeEntries.toImmutableList())
             }
         }
@@ -1602,7 +1613,7 @@ class BookInfoViewModel(
                     characterName = nameMap[event.characterId].orEmpty(),
                 )
             }
-            _uiState.update {
+            _screenState.update {
                 it.copy(recentEvents = currentRecentEvents.toImmutableList())
             }
         }
@@ -1728,7 +1739,7 @@ class BookInfoViewModel(
             durChapterIndex = durChapterIndex,
             durChapterPos = durChapterPos,
             remark = remark,
-            displayIntro = getDisplayIntro(),
+            displayIntro = HtmlFormatter.formatDisplayText(getDisplayIntro()),
         )
     }
 
@@ -1748,6 +1759,24 @@ class BookInfoViewModel(
         }
     }
 }
+
+/**
+ * 把三类设置（各自的 SSOT）叠加到屏幕状态上，得到完整的 UI 状态。
+ * 纯函数：设置字段只来自参数，与屏幕状态如何重置无关。
+ */
+internal fun BookInfoUiState.withSettings(
+    theme: ThemeSettings,
+    cover: CoverSettings,
+    other: OtherSettings,
+): BookInfoUiState = copy(
+    bookInfoFollowCoverColor = theme.bookInfoFollowCoverColor,
+    bookInfoNetworkCoverBackground = theme.bookInfoNetworkCoverBackground,
+    bookInfoDefaultCoverBackground = theme.bookInfoDefaultCoverBackground,
+    loadCoverOnlyOnWifi = cover.loadOnlyOnWifi,
+    defaultCover = cover.defaultCover,
+    defaultCoverDark = cover.defaultCoverDark,
+    showMangaUi = other.showMangaUi,
+)
 
 private val BookInfoWebFile.suffix: String
     get() = UrlUtil.getSuffix(name)

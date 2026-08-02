@@ -27,13 +27,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
-import io.legado.app.help.DirectLinkUpload
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
-import io.legado.app.ui.widget.components.button.series.MediumPlainButton
+import io.legado.app.ui.widget.components.button.series.MediumTonalButton
 import io.legado.app.ui.widget.components.checkBox.CheckboxItem
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
@@ -60,7 +59,7 @@ fun DirectLinkUploadBottomSheet(
         show = show,
         title = stringResource(R.string.direct_link_upload_config),
         startAction = {
-            MediumPlainButton(
+            MediumTonalButton(
                 onClick = {
                     onIntent(OtherConfigIntent.TestDirectLinkRule)
                 },
@@ -70,7 +69,7 @@ fun DirectLinkUploadBottomSheet(
         },
         endAction = {
             Box {
-                MediumPlainButton(
+                MediumTonalButton(
                     onClick = { showMenu = true },
                 icon = Icons.Default.MoreVert,
                 contentDescription = stringResource(R.string.more_menu)
@@ -84,7 +83,7 @@ fun DirectLinkUploadBottomSheet(
                         leadingIcon = { Icon(Icons.Default.Download, null) },
                         onClick = {
                             showMenu = false
-                            context.selector(DirectLinkUpload.defaultRules) { _, rule, _ ->
+                            context.selector(state.directRulePresets) { _, rule, _ ->
                                 onIntent(
                                     OtherConfigIntent.DirectRuleChanged(
                                         uploadUrl = rule.uploadUrl,
@@ -101,11 +100,11 @@ fun DirectLinkUploadBottomSheet(
                         leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
                         onClick = {
                             showMenu = false
-                            val rule = DirectLinkUpload.Rule(
-                                state.directUploadUrl,
-                                state.directDownloadUrlRule,
-                                state.directSummary,
-                                state.directCompress
+                            val rule = DirectLinkRuleUi(
+                                uploadUrl = state.directUploadUrl,
+                                downloadUrlRule = state.directDownloadUrlRule,
+                                summary = state.directSummary,
+                                compress = state.directCompress,
                             )
                             context.sendToClip(GSON.toJson(rule))
                         }
@@ -118,7 +117,7 @@ fun DirectLinkUploadBottomSheet(
                             runCatching {
                                 context.getClipText()?.let {
                                     val rule =
-                                        GSON.fromJsonObject<DirectLinkUpload.Rule>(it)
+                                        GSON.fromJsonObject<DirectLinkRuleUi>(it)
                                             .getOrThrow()
                                     onIntent(
                                         OtherConfigIntent.DirectRuleChanged(

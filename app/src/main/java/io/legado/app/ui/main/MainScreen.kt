@@ -77,6 +77,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.legado.app.R
+import io.legado.app.ui.main.bookshelf.BookShelfItem
 import io.legado.app.ui.main.bookshelf.BookshelfRouteScreen
 import io.legado.app.ui.main.bookshelf.BookshelfViewModel
 import io.legado.app.ui.main.explore.ExploreRouteScreen
@@ -127,13 +128,20 @@ fun MainScreen(
     onOpenSettings: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToSearch: (String?) -> Unit,
+    onNavigateToScopedSearch: (String) -> Unit,
     onNavigateToRemoteImport: () -> Unit,
     onNavigateToLocalImport: () -> Unit,
     onNavigateToCache: (Long) -> Unit,
     onNavigateToBookCacheManage: () -> Unit,
+    onOpenBookshelfBook: (BookShelfItem) -> Unit,
     onNavigateToBackupSettings: () -> Unit,
     onNavigateToBookInfo: (name: String, author: String, bookUrl: String, origin: String?, coverPath: String?, sharedCoverKey: String?) -> Unit,
     onNavigateToExploreShow: (title: String?, sourceUrl: String, exploreUrl: String?) -> Unit,
+    onNavigateToSourceLogin: (type: io.legado.app.ui.login.SourceLoginType, sourceUrl: String) -> Unit,
+    onNavigateToBookSourceManage: () -> Unit,
+    onNavigateToBookSourceEdit: (String?) -> Unit,
+    onNavigateToRssSourceManage: () -> Unit,
+    onNavigateToRssSourceEdit: (String?) -> Unit,
     onNavigateToRssSort: (sourceUrl: String, sortUrl: String?, key: String?) -> Unit,
     onNavigateToRssRead: (
         title: String?,
@@ -221,20 +229,11 @@ fun MainScreen(
         orientation = Orientation.Horizontal,
     )
     var bookshelfScrollToTopRequest by remember { mutableLongStateOf(0L) }
-    var homeOverflowMenuRequest by remember { mutableLongStateOf(0L) }
     fun requestBookshelfScrollToTop() {
         bookshelfScrollToTopRequest++
     }
 
     fun handleMainDestinationClick(index: Int, destination: MainDestination) {
-        if (
-            destination == MainDestination.Home &&
-            pagerState.currentPage == index &&
-            pagerState.targetPage == index
-        ) {
-            homeOverflowMenuRequest++
-            return
-        }
         if (
             destination == MainDestination.Bookshelf &&
             pagerState.currentPage == index &&
@@ -522,7 +521,6 @@ fun MainScreen(
                         CompositionLocalProvider(LocalLifecycleOwner provides pageLifecycleOwner) {
                             when (destination) {
                             MainDestination.Home -> HomeRouteScreen(
-                                showOverflowMenuRequest = homeOverflowMenuRequest,
                                 onOpenBook = { book ->
                                     context.startActivityForBook(book)
                                 },
@@ -552,7 +550,7 @@ fun MainScreen(
                                     }
                                 },
                                 onBookClick = { book ->
-                                    context.startActivityForBook(book)
+                                    onOpenBookshelfBook(book)
                                 },
                                 onBookLongClick = { book, sharedCoverKey ->
                                     onNavigateToBookInfo(
@@ -574,6 +572,14 @@ fun MainScreen(
 
                             MainDestination.Explore -> ExploreRouteScreen(
                                 onOpenExploreShow = onNavigateToExploreShow,
+                                onOpenLogin = { sourceUrl ->
+                                    onNavigateToSourceLogin(
+                                        io.legado.app.ui.login.SourceLoginType.BookSource,
+                                        sourceUrl,
+                                    )
+                                },
+                                onOpenEdit = onNavigateToBookSourceEdit,
+                                onOpenSearch = onNavigateToScopedSearch,
                             )
                             MainDestination.Rss -> RssRouteScreen(
                                 onOpenSort = { sourceUrl, sortUrl, key ->
@@ -583,7 +589,15 @@ fun MainScreen(
                                     onNavigateToRssRead(title, origin, link, openUrl, startPage)
                                 },
                                 onOpenFavorites = onNavigateToRssFavorites,
-                                onOpenRuleSub = onNavigateToRuleSub
+                                onOpenRuleSub = onNavigateToRuleSub,
+                                onOpenLogin = { sourceUrl ->
+                                    onNavigateToSourceLogin(
+                                        io.legado.app.ui.login.SourceLoginType.RssSource,
+                                        sourceUrl,
+                                    )
+                                },
+                                onOpenSourceEdit = onNavigateToRssSourceEdit,
+                                onOpenSourceManage = onNavigateToRssSourceManage,
                             )
                             MainDestination.My -> MyRouteScreen(
                                 onOpenSettings = onOpenSettings,
@@ -591,6 +605,7 @@ fun MainScreen(
                                 onNavigate = { event ->
                                     when (event) {
                                         PrefClickEvent.OpenBookCacheManage -> onNavigateToBookCacheManage()
+                                        PrefClickEvent.OpenBookSourceManage -> onNavigateToBookSourceManage()
                                         PrefClickEvent.OpenReadRecord -> onNavigateToReadRecord()
                                         else -> onIntent(MainUiIntent.HandlePreferenceClick(event))
                                     }

@@ -3,25 +3,22 @@ package io.legado.app.ui.replace
 import android.content.ClipData
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.base.BaseRuleEvent
 import io.legado.app.data.entities.ReplaceRule
+import io.legado.app.ui.theme.ProvideAppDensity
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.theme.adaptiveHorizontalPadding
 import io.legado.app.ui.widget.components.ActionItem
@@ -61,7 +59,7 @@ import io.legado.app.ui.widget.components.lazylist.FastScrollLazyColumn
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.rules.RuleListScaffold
 import io.legado.app.ui.widget.components.tabRow.AppTabRow
-import io.legado.app.ui.widget.components.text.AppText
+import io.legado.app.utils.showHelp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -74,12 +72,19 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @Composable
 fun ReplaceRuleRouteScreen(
     viewModel: ReplaceRuleViewModel = koinViewModel(),
+    bookUrl: String? = null,
     onBackClick: () -> Unit,
     onNavigateToEdit: (ReplaceEditRoute) -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
     val groups by viewModel.allGroups.collectAsStateWithLifecycle()
+
+    LaunchedEffect(bookUrl) {
+        if (!bookUrl.isNullOrBlank()) {
+            viewModel.onIntent(ReplaceRuleIntent.InitBookData(bookUrl))
+        }
+    }
 
     ReplaceRuleScreen(
         state = uiState,
@@ -215,7 +220,7 @@ fun ReplaceRuleScreen(
     )
 
     if (importState is BaseImportUiState.Loading) {
-        Dialog(onDismissRequest = { onIntent(ReplaceRuleIntent.CancelImport) }) { LoadingIndicator() }
+        Dialog(onDismissRequest = { onIntent(ReplaceRuleIntent.CancelImport) }) { ProvideAppDensity { LoadingIndicator() } }
     }
 
     LaunchedEffect(importState) {
@@ -361,7 +366,7 @@ fun ReplaceRuleScreen(
             )
             RoundDropdownMenuItem(
                 text = stringResource(R.string.help),
-                onClick = { /*TODO*/ dismiss() }
+                onClick = { dismiss(); (context as? AppCompatActivity)?.showHelp("replaceRuleHelp") }
             )
             PillDivider()
             RoundDropdownMenuItem(
@@ -500,4 +505,5 @@ fun ReplaceRuleScreen(
             }
         }
     }
+
 }

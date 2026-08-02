@@ -1,45 +1,30 @@
 package io.legado.app.data.repository
 
-import io.legado.app.constant.PreferKey
+import androidx.datastore.preferences.core.Preferences
 import io.legado.app.BuildConfig
+import io.legado.app.constant.PreferKey
 import io.legado.app.domain.gateway.AppShellSettingsGateway
-import io.legado.app.domain.gateway.AppShellBooleanSetting
-import io.legado.app.domain.gateway.AppShellStringSetting
-import io.legado.app.domain.gateway.AppShellSettingsUpdate
-import io.legado.app.domain.gateway.OtherSettingsGateway
-import io.legado.app.domain.gateway.OtherSettingsUpdate
-import io.legado.app.domain.gateway.ThemeSettingsGateway
-import io.legado.app.domain.gateway.ThemeBooleanSetting
-import io.legado.app.domain.gateway.ThemeColorSlot
-import io.legado.app.domain.gateway.ThemeFloatSetting
-import io.legado.app.domain.gateway.ThemeIntSetting
-import io.legado.app.domain.gateway.ThemeStringSetting
-import io.legado.app.domain.gateway.ThemeSettingsUpdate
-import io.legado.app.domain.model.settings.AppShellSettings
-import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
-import io.legado.app.domain.gateway.DownloadCacheSettingsUpdate
-import io.legado.app.domain.model.settings.DownloadCacheSettings
+import io.legado.app.domain.gateway.BackupSettingsGateway
 import io.legado.app.domain.gateway.CoverSettingsGateway
-import io.legado.app.domain.gateway.CoverSettingsUpdate
+import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
+import io.legado.app.domain.gateway.LabSettingsGateway
+import io.legado.app.domain.gateway.OtherSettingsGateway
+import io.legado.app.domain.gateway.ThemeSettingsGateway
+import io.legado.app.domain.gateway.TranslationSettingsGateway
+import io.legado.app.domain.model.TranslationConstants
+import io.legado.app.domain.model.settings.AppShellSettings
+import io.legado.app.domain.model.settings.BackupSettings
 import io.legado.app.domain.model.settings.CoverSettings
+import io.legado.app.domain.model.settings.DownloadCacheSettings
+import io.legado.app.domain.model.settings.LabSettings
 import io.legado.app.domain.model.settings.OtherSettings
 import io.legado.app.domain.model.settings.ThemeSettings
-import io.legado.app.domain.gateway.LabSettingsGateway
-import io.legado.app.domain.gateway.LabSettingsUpdate
-import io.legado.app.domain.gateway.TranslationSettingsGateway
-import io.legado.app.domain.gateway.TranslationSettingsUpdate
-import io.legado.app.domain.model.TranslationConstants
-import io.legado.app.domain.model.settings.LabSettings
 import io.legado.app.domain.model.settings.TranslationSettings
-import io.legado.app.domain.gateway.BackupSettingsGateway
-import io.legado.app.domain.gateway.BackupSettingsUpdate
-import io.legado.app.domain.model.settings.BackupSettings
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.compatDsBoolean
 import io.legado.app.help.config.compatDsFloat
 import io.legado.app.help.config.compatDsInt
 import io.legado.app.help.config.compatDsString
-import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -52,49 +37,12 @@ class AppShellSettingsRepository : AppShellSettingsGateway {
         .map(Preferences::toAppShellSettings)
         .distinctUntilChanged()
 
-    override suspend fun update(update: AppShellSettingsUpdate) = updateAll(listOf(update))
-
-    override suspend fun updateAll(updates: List<AppShellSettingsUpdate>) {
-        val values = updates.associate { update ->
-            val (key, value) = when (update) {
-                is AppShellSettingsUpdate.ThemeMode -> PreferKey.themeMode to update.value
-                is AppShellSettingsUpdate.FontScale -> PreferKey.fontScale to update.value
-                is AppShellSettingsUpdate.ComposeEngine -> PreferKey.composeEngine to update.value
-                is AppShellSettingsUpdate.MainNavigationOrder ->
-                    PreferKey.mainNavigationOrder to update.value
-                is AppShellSettingsUpdate.BooleanValue -> when (update.setting) {
-                    AppShellBooleanSetting.ShowHome -> PreferKey.showHome to update.value
-                    AppShellBooleanSetting.ShowDiscovery -> PreferKey.showDiscovery to update.value
-                    AppShellBooleanSetting.ShowRss -> PreferKey.showRss to update.value
-                    AppShellBooleanSetting.ShowStatusBar -> PreferKey.showStatusBar to update.value
-                    AppShellBooleanSetting.SwipeAnimation -> PreferKey.swipeAnimation to update.value
-                    AppShellBooleanSetting.PredictiveBack ->
-                        PreferKey.isPredictiveBackEnabled to update.value
-                    AppShellBooleanSetting.ShowBottomView -> PreferKey.showBottomView to update.value
-                    AppShellBooleanSetting.UseFloatingBottomBar ->
-                        PreferKey.useFloatingBottomBar to update.value
-                    AppShellBooleanSetting.UseFloatingBottomBarLiquidGlass ->
-                        PreferKey.useFloatingBottomBarLiquidGlass to update.value
-                    AppShellBooleanSetting.NavExtended -> PreferKey.navExtended to update.value
-                }
-                is AppShellSettingsUpdate.StringValue -> when (update.setting) {
-                    AppShellStringSetting.TabletInterface ->
-                        PreferKey.tabletInterface to update.value
-                    AppShellStringSetting.LabelVisibilityMode ->
-                        PreferKey.labelVisibilityMode to update.value
-                    AppShellStringSetting.DefaultHomePage ->
-                        PreferKey.defaultHomePage to update.value
-                    AppShellStringSetting.NavIconHome -> PreferKey.navIconHome to update.value
-                    AppShellStringSetting.NavIconBookshelf -> PreferKey.navIconBookshelf to update.value
-                    AppShellStringSetting.NavIconExplore -> PreferKey.navIconExplore to update.value
-                    AppShellStringSetting.NavIconRss -> PreferKey.navIconRss to update.value
-                    AppShellStringSetting.NavIconMy -> PreferKey.navIconMy to update.value
-                    AppShellStringSetting.LauncherIcon -> PreferKey.launcherIcon to update.value
-                }
-            }
-            key to value
-        }
-        AppConfigStore.putAll(values)
+    override suspend fun update(transform: (AppShellSettings) -> AppShellSettings) {
+        AppConfigStore.atomicUpdate(
+            read = Preferences::toAppShellSettings,
+            toPrefMap = AppShellSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }
 
@@ -106,268 +54,230 @@ class ThemeSettingsRepository : ThemeSettingsGateway {
         .map(Preferences::toThemeSettings)
         .distinctUntilChanged()
 
-    override suspend fun update(update: ThemeSettingsUpdate) = updateAll(listOf(update))
-
-    override suspend fun updateAll(updates: List<ThemeSettingsUpdate>) {
-        val values = updates.associate { update ->
-            val (key, value) = when (update) {
-            is ThemeSettingsUpdate.AppTheme -> PreferKey.appTheme to update.value
-            is ThemeSettingsUpdate.PureBlack -> PreferKey.pureBlack to update.value
-            is ThemeSettingsUpdate.PaletteStyle -> PreferKey.paletteStyle to update.value
-            is ThemeSettingsUpdate.MaterialVersion -> PreferKey.materialVersion to update.value
-            is ThemeSettingsUpdate.CustomContrast -> PreferKey.customContrast to update.value
-            is ThemeSettingsUpdate.DeepPersonalization ->
-                PreferKey.enableDeepPersonalization to update.value
-            is ThemeSettingsUpdate.CustomColor -> when (update.slot) {
-                ThemeColorSlot.Primary -> PreferKey.themeColor to update.value
-                ThemeColorSlot.Secondary -> PreferKey.secondaryThemeColor to update.value
-                ThemeColorSlot.PrimaryText -> PreferKey.primaryTextColor to update.value
-                ThemeColorSlot.SecondaryText -> PreferKey.secondaryTextColor to update.value
-                ThemeColorSlot.Background -> PreferKey.themeBackgroundColor to update.value
-                ThemeColorSlot.LabelContainer -> PreferKey.labelContainerColor to update.value
-                ThemeColorSlot.PrimaryNight -> PreferKey.themeColorNight to update.value
-                ThemeColorSlot.SecondaryNight -> PreferKey.secondaryThemeColorNight to update.value
-                ThemeColorSlot.PrimaryTextNight -> PreferKey.primaryTextColorNight to update.value
-                ThemeColorSlot.SecondaryTextNight -> PreferKey.secondaryTextColorNight to update.value
-                ThemeColorSlot.BackgroundNight -> PreferKey.themeBackgroundColorNight to update.value
-                ThemeColorSlot.LabelContainerNight -> PreferKey.labelContainerColorNight to update.value
-            }
-            is ThemeSettingsUpdate.AppFontPath -> PreferKey.appFontPath to update.value
-            is ThemeSettingsUpdate.CustomPrimary -> PreferKey.cPrimary to update.value
-            is ThemeSettingsUpdate.CustomNightPrimary -> PreferKey.cNPrimary to update.value
-            is ThemeSettingsUpdate.BooleanValue -> when (update.setting) {
-                ThemeBooleanSetting.UseMiuixMonet -> PreferKey.useMiuixMonet to update.value
-                ThemeBooleanSetting.EnableBlur -> PreferKey.enableBlur to update.value
-                ThemeBooleanSetting.EnableProgressiveBlur -> PreferKey.enableProgressiveBlur to update.value
-                ThemeBooleanSetting.UseFlexibleTopAppBar -> PreferKey.useFlexibleTopAppBar to update.value
-                ThemeBooleanSetting.BookInfoFollowCoverColor -> PreferKey.bookInfoFollowCoverColor to update.value
-                ThemeBooleanSetting.EnableItemDivider -> PreferKey.enableItemDivider to update.value
-                ThemeBooleanSetting.EyeProtectionEnabled -> PreferKey.eyeProtectionEnabled to update.value
-                ThemeBooleanSetting.EyeProtectionSchedule -> PreferKey.eyeProtectionSchedule to update.value
-                ThemeBooleanSetting.ShowRefactorTip ->
-                    io.legado.app.data.local.preferences.LocalPreferencesKeys.SHOW_THEME_REFACTOR_TIP.name to update.value
-                ThemeBooleanSetting.EnableCustomTagColors -> PreferKey.enableCustomTagColors to update.value
-            }
-            is ThemeSettingsUpdate.IntValue -> when (update.setting) {
-                ThemeIntSetting.ContainerOpacity -> PreferKey.containerOpacity to update.value
-                ThemeIntSetting.TopBarOpacity -> PreferKey.topBarOpacity to update.value
-                ThemeIntSetting.BottomBarOpacity -> PreferKey.bottomBarOpacity to update.value
-                ThemeIntSetting.TopBarBlurRadius -> PreferKey.topBarBlurRadius to update.value
-                ThemeIntSetting.BottomBarBlurRadius -> PreferKey.bottomBarBlurRadius to update.value
-                ThemeIntSetting.TopBarBlurAlpha -> PreferKey.topBarBlurAlpha to update.value
-                ThemeIntSetting.BottomBarBlurAlpha -> PreferKey.bottomBarBlurAlpha to update.value
-                ThemeIntSetting.BackgroundImageBlurring -> PreferKey.bgImageBlurring to update.value
-                ThemeIntSetting.BackgroundImageDarkBlurring -> PreferKey.bgImageNBlurring to update.value
-                ThemeIntSetting.ItemDividerColor -> PreferKey.itemDividerColor to update.value
-                ThemeIntSetting.ColorTemperature -> PreferKey.colorTemperature to update.value
-            }
-            is ThemeSettingsUpdate.FloatValue -> when (update.setting) {
-                ThemeFloatSetting.BottomBarLensRadius -> PreferKey.bottomBarLensRadius to update.value
-                ThemeFloatSetting.ItemDividerWidth -> PreferKey.itemDividerWidth to update.value
-                ThemeFloatSetting.ItemDividerLength -> PreferKey.itemDividerLength to update.value
-            }
-            is ThemeSettingsUpdate.StringValue -> when (update.setting) {
-                ThemeStringSetting.BookInfoNetworkCoverBackground ->
-                    PreferKey.bookInfoNetworkCoverBackground to update.value
-                ThemeStringSetting.BookInfoDefaultCoverBackground ->
-                    PreferKey.bookInfoDefaultCoverBackground to update.value
-                ThemeStringSetting.BackgroundImageLight -> PreferKey.bgImage to update.value
-                ThemeStringSetting.BackgroundImageDark -> PreferKey.bgImageN to update.value
-                ThemeStringSetting.EyeProtectionStartTime -> PreferKey.eyeProtectionStartTime to update.value
-                ThemeStringSetting.EyeProtectionEndTime -> PreferKey.eyeProtectionEndTime to update.value
-                ThemeStringSetting.CustomTagColorsJson -> PreferKey.customTagColors to update.value
-            }
-            }
-            key to value
-        }
-        AppConfigStore.putAll(values)
+    override suspend fun update(transform: (ThemeSettings) -> ThemeSettings) {
+        AppConfigStore.atomicUpdate(
+            read = Preferences::toThemeSettings,
+            toPrefMap = ThemeSettings::toGatewayPrefMap,
+            transform = transform,
+        )
     }
 }
 
 class DownloadCacheSettingsRepository : DownloadCacheSettingsGateway {
+    override val currentSettings: DownloadCacheSettings
+        get() = AppConfigStore.preferences.toDownloadCacheSettings()
+
     override val settings: Flow<DownloadCacheSettings> = AppConfigStore.preferencesFlow
-        .map { preferences ->
-            DownloadCacheSettings(
-                bitmapCacheSize = preferences.compatDsInt(PreferKey.bitmapCacheSize) ?: 50,
-                imageRetainNum = preferences.compatDsInt(PreferKey.imageRetainNum) ?: 0,
-                preDownloadNum = preferences.compatDsInt(PreferKey.preDownloadNum) ?: 10,
-                threadCount = preferences.compatDsInt(PreferKey.threadCount) ?: 16,
-                cacheBookThreadCount =
-                    preferences.compatDsInt(PreferKey.cacheBookThreadCount) ?: 16,
-                userAgent = preferences.compatDsString(PreferKey.userAgent).orEmpty().ifBlank {
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                        "Chrome/${BuildConfig.Cronet_Main_Version} Safari/537.36"
-                },
-                cronetEnabled = preferences.compatDsBoolean(PreferKey.cronet) ?: false,
-            )
-        }
+        .map { it.toDownloadCacheSettings() }
         .distinctUntilChanged()
 
-    override suspend fun update(update: DownloadCacheSettingsUpdate) {
-        val (key, value) = when (update) {
-            is DownloadCacheSettingsUpdate.BitmapCacheSize -> PreferKey.bitmapCacheSize to update.value
-            is DownloadCacheSettingsUpdate.ImageRetainNum -> PreferKey.imageRetainNum to update.value
-            is DownloadCacheSettingsUpdate.PreDownloadNum -> PreferKey.preDownloadNum to update.value
-            is DownloadCacheSettingsUpdate.ThreadCount -> PreferKey.threadCount to update.value
-            is DownloadCacheSettingsUpdate.CacheBookThreadCount ->
-                PreferKey.cacheBookThreadCount to update.value
-            is DownloadCacheSettingsUpdate.UserAgent -> PreferKey.userAgent to update.value
-            is DownloadCacheSettingsUpdate.CronetEnabled -> PreferKey.cronet to update.value
-        }
-        AppConfigStore.putAll(mapOf(key to value))
+    override suspend fun update(transform: (DownloadCacheSettings) -> DownloadCacheSettings) {
+        AppConfigStore.atomicUpdateAndAwait(
+            read = Preferences::toDownloadCacheSettings,
+            toPrefMap = DownloadCacheSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }
 
 class CoverSettingsRepository : CoverSettingsGateway {
+    override val currentSettings: CoverSettings
+        get() = AppConfigStore.preferences.toCoverSettings()
+
     override val settings: Flow<CoverSettings> = AppConfigStore.preferencesFlow
-        .map { preferences ->
-            CoverSettings(
-                loadOnlyOnWifi = preferences.compatDsBoolean(PreferKey.loadCoverOnlyWifi) ?: false,
-                useDefaultCover = preferences.compatDsBoolean(PreferKey.useDefaultCover) ?: false,
-                showShadow = preferences.compatDsBoolean(PreferKey.coverShowShadow) ?: false,
-                showStroke = preferences.compatDsBoolean(PreferKey.coverShowStroke) ?: true,
-                useDefaultColor = preferences.compatDsBoolean(PreferKey.coverDefaultColor) ?: true,
-                textColor = preferences.compatDsInt(PreferKey.coverTextColor) ?: -16777216,
-                shadowColor = preferences.compatDsInt(PreferKey.coverShadowColor) ?: -16777216,
-                showName = preferences.compatDsBoolean(PreferKey.coverShowName) ?: true,
-                showAuthor = preferences.compatDsBoolean(PreferKey.coverShowAuthor) ?: true,
-                textColorDark = preferences.compatDsInt(PreferKey.coverTextColorN) ?: -1,
-                shadowColorDark = preferences.compatDsInt(PreferKey.coverShadowColorN) ?: -1,
-                showNameDark = preferences.compatDsBoolean(PreferKey.coverShowNameN) ?: true,
-                showAuthorDark = preferences.compatDsBoolean(PreferKey.coverShowAuthorN) ?: true,
-                infoOrientation = preferences.compatDsString(PreferKey.coverInfoOrientation) ?: "0",
-                exploreFilterState = preferences.compatDsInt(PreferKey.exploreFilterState) ?: 0,
-                defaultCover = preferences.compatDsString(PreferKey.defaultCover).orEmpty(),
-                defaultCoverDark = preferences.compatDsString(PreferKey.defaultCoverDark).orEmpty(),
-            )
-        }
+        .map { it.toCoverSettings() }
         .distinctUntilChanged()
 
-    override suspend fun update(update: CoverSettingsUpdate) {
-        val (key, value) = when (update) {
-            is CoverSettingsUpdate.LoadOnlyOnWifi -> PreferKey.loadCoverOnlyWifi to update.value
-            is CoverSettingsUpdate.UseDefaultCover -> PreferKey.useDefaultCover to update.value
-            is CoverSettingsUpdate.ShowShadow -> PreferKey.coverShowShadow to update.value
-            is CoverSettingsUpdate.ShowStroke -> PreferKey.coverShowStroke to update.value
-            is CoverSettingsUpdate.UseDefaultColor -> PreferKey.coverDefaultColor to update.value
-            is CoverSettingsUpdate.TextColor ->
-                (if (update.dark) PreferKey.coverTextColorN else PreferKey.coverTextColor) to update.value
-            is CoverSettingsUpdate.ShadowColor ->
-                (if (update.dark) PreferKey.coverShadowColorN else PreferKey.coverShadowColor) to update.value
-            is CoverSettingsUpdate.ShowName ->
-                (if (update.dark) PreferKey.coverShowNameN else PreferKey.coverShowName) to update.value
-            is CoverSettingsUpdate.ShowAuthor ->
-                (if (update.dark) PreferKey.coverShowAuthorN else PreferKey.coverShowAuthor) to update.value
-            is CoverSettingsUpdate.InfoOrientation -> PreferKey.coverInfoOrientation to update.value
-            is CoverSettingsUpdate.ExploreFilterState -> PreferKey.exploreFilterState to update.value
-        }
-        AppConfigStore.putAll(mapOf(key to value))
+    override suspend fun update(transform: (CoverSettings) -> CoverSettings) {
+        AppConfigStore.atomicUpdate(
+            read = Preferences::toCoverSettings,
+            toPrefMap = CoverSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }
 
 class LabSettingsRepository : LabSettingsGateway {
+    override val currentSettings: LabSettings
+        get() = AppConfigStore.preferences.toLabSettings()
+
     override val settings: Flow<LabSettings> = AppConfigStore.preferencesFlow
-        .map { preferences ->
-            LabSettings(
-                enabled = preferences.compatDsBoolean(PreferKey.labEnabled) ?: false,
-                eInkDisplay = preferences.compatDsBoolean(PreferKey.labEInkDisplay) ?: false,
-                eyeProtection = preferences.compatDsBoolean(PreferKey.labEyeProtection) ?: false,
-            )
-        }
+        .map { it.toLabSettings() }
         .distinctUntilChanged()
 
-    override suspend fun update(update: LabSettingsUpdate) {
-        val (key, value) = when (update) {
-            is LabSettingsUpdate.Enabled -> PreferKey.labEnabled to update.value
-            is LabSettingsUpdate.EInkDisplay -> PreferKey.labEInkDisplay to update.value
-            is LabSettingsUpdate.EyeProtection -> PreferKey.labEyeProtection to update.value
-        }
-        AppConfigStore.putAll(mapOf(key to value))
+    override suspend fun update(transform: (LabSettings) -> LabSettings) {
+        AppConfigStore.atomicUpdate(
+            read = Preferences::toLabSettings,
+            toPrefMap = LabSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }
 
 class TranslationSettingsRepository : TranslationSettingsGateway {
+    override val currentSettings: TranslationSettings
+        get() = AppConfigStore.preferences.toTranslationSettings()
+
     override val settings: Flow<TranslationSettings> = AppConfigStore.preferencesFlow
-        .map { preferences ->
-            val storedProvider = preferences.compatDsString(PreferKey.llmProvider)
-                ?: TranslationConstants.PROVIDER_GOOGLE
-            TranslationSettings(
-                provider = if (storedProvider == TranslationConstants.PROVIDER_OPENAI) {
-                    TranslationConstants.PROVIDER_APP_AI
-                } else {
-                    storedProvider
-                },
-                targetLanguage = preferences.compatDsString(PreferKey.llmTargetLanguage) ?: "zh",
-                maxCharsPerChunk = preferences.compatDsInt(PreferKey.llmMaxCharsPerChunk) ?: 10000,
-            )
-        }
+        .map { it.toTranslationSettings() }
         .distinctUntilChanged()
 
-    override suspend fun update(update: TranslationSettingsUpdate) {
-        val (key, value) = when (update) {
-            is TranslationSettingsUpdate.Provider -> PreferKey.llmProvider to update.value
-            is TranslationSettingsUpdate.TargetLanguage -> PreferKey.llmTargetLanguage to update.value
-            is TranslationSettingsUpdate.MaxCharsPerChunk -> PreferKey.llmMaxCharsPerChunk to update.value
-        }
-        AppConfigStore.putAll(mapOf(key to value))
+    override suspend fun update(transform: (TranslationSettings) -> TranslationSettings) {
+        AppConfigStore.atomicUpdate(
+            read = Preferences::toTranslationSettings,
+            toPrefMap = TranslationSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }
 
 class BackupSettingsRepository : BackupSettingsGateway {
+    override val currentSettings: BackupSettings
+        get() = AppConfigStore.preferences.toBackupSettings()
+
     override val settings: Flow<BackupSettings> = AppConfigStore.preferencesFlow
-        .map { preferences ->
-            BackupSettings(
-                webDavUrl = preferences.compatDsString(PreferKey.webDavUrl).orEmpty(),
-                webDavAccount = preferences.compatDsString(PreferKey.webDavAccount).orEmpty(),
-                webDavPassword = preferences.compatDsString(PreferKey.webDavPassword).orEmpty(),
-                webDavDir = preferences.compatDsString(PreferKey.webDavDir) ?: "legado",
-                webDavDeviceName = preferences.compatDsString(PreferKey.webDavDeviceName).orEmpty(),
-                syncBookProgress = preferences.compatDsBoolean(PreferKey.syncBookProgress) ?: true,
-                syncBookProgressPlus =
-                    preferences.compatDsBoolean(PreferKey.syncBookProgressPlus) ?: false,
-                autoCheckNewBackup =
-                    preferences.compatDsBoolean(PreferKey.autoCheckNewBackup) ?: true,
-                onlyLatestBackup = preferences.compatDsBoolean(PreferKey.onlyLatestBackup) ?: true,
-                backupSyncMode = preferences.compatDsString(PreferKey.backupSyncMode) ?: "both",
-                backupPath = preferences.compatDsString(PreferKey.backupPath),
-            )
-        }
+        .map { it.toBackupSettings() }
         .distinctUntilChanged()
 
-    override suspend fun update(update: BackupSettingsUpdate) = updateAll(listOf(update))
-
-    override suspend fun updateAll(updates: List<BackupSettingsUpdate>) {
-        val values = buildMap {
-            updates.forEach { update ->
-                when (update) {
-                    is BackupSettingsUpdate.WebDavUrl -> put(PreferKey.webDavUrl, update.value)
-                    is BackupSettingsUpdate.WebDavCredentials -> {
-                        put(PreferKey.webDavAccount, update.account)
-                        put(PreferKey.webDavPassword, update.password)
-                    }
-                    is BackupSettingsUpdate.WebDavDir -> put(PreferKey.webDavDir, update.value)
-                    is BackupSettingsUpdate.WebDavDeviceName ->
-                        put(PreferKey.webDavDeviceName, update.value)
-                    is BackupSettingsUpdate.SyncBookProgress ->
-                        put(PreferKey.syncBookProgress, update.value)
-                    is BackupSettingsUpdate.SyncBookProgressPlus ->
-                        put(PreferKey.syncBookProgressPlus, update.value)
-                    is BackupSettingsUpdate.AutoCheckNewBackup ->
-                        put(PreferKey.autoCheckNewBackup, update.value)
-                    is BackupSettingsUpdate.OnlyLatestBackup ->
-                        put(PreferKey.onlyLatestBackup, update.value)
-                    is BackupSettingsUpdate.BackupSyncMode ->
-                        put(PreferKey.backupSyncMode, update.value)
-                    is BackupSettingsUpdate.BackupPath -> put(PreferKey.backupPath, update.value)
-                }
-            }
-        }
-        AppConfigStore.putAll(values)
+    override suspend fun update(transform: (BackupSettings) -> BackupSettings) {
+        AppConfigStore.atomicUpdate(
+            read = Preferences::toBackupSettings,
+            toPrefMap = BackupSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }
 
-private fun Preferences.toAppShellSettings(): AppShellSettings = AppShellSettings(
+internal fun Preferences.toDownloadCacheSettings(): DownloadCacheSettings =
+    DownloadCacheSettings(
+        bitmapCacheSize = compatDsInt(PreferKey.bitmapCacheSize) ?: 50,
+        imageRetainNum = compatDsInt(PreferKey.imageRetainNum) ?: 0,
+        preDownloadNum = compatDsInt(PreferKey.preDownloadNum) ?: 10,
+        threadCount = compatDsInt(PreferKey.threadCount) ?: 16,
+        cacheBookThreadCount = compatDsInt(PreferKey.cacheBookThreadCount) ?: 16,
+        userAgent = compatDsString(PreferKey.userAgent).orEmpty().ifBlank {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/${BuildConfig.Cronet_Main_Version} Safari/537.36"
+        },
+        cronetEnabled = compatDsBoolean(PreferKey.cronet) ?: false,
+    )
+
+internal fun DownloadCacheSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.bitmapCacheSize to bitmapCacheSize,
+    PreferKey.imageRetainNum to imageRetainNum,
+    PreferKey.preDownloadNum to preDownloadNum,
+    PreferKey.threadCount to threadCount,
+    PreferKey.cacheBookThreadCount to cacheBookThreadCount,
+    PreferKey.userAgent to userAgent,
+    PreferKey.cronet to cronetEnabled,
+)
+
+internal fun Preferences.toCoverSettings(): CoverSettings = CoverSettings(
+    loadOnlyOnWifi = compatDsBoolean(PreferKey.loadCoverOnlyWifi) ?: false,
+    useDefaultCover = compatDsBoolean(PreferKey.useDefaultCover) ?: false,
+    showShadow = compatDsBoolean(PreferKey.coverShowShadow) ?: false,
+    showStroke = compatDsBoolean(PreferKey.coverShowStroke) ?: true,
+    useDefaultColor = compatDsBoolean(PreferKey.coverDefaultColor) ?: true,
+    textColor = compatDsInt(PreferKey.coverTextColor) ?: -16777216,
+    shadowColor = compatDsInt(PreferKey.coverShadowColor) ?: -16777216,
+    showName = compatDsBoolean(PreferKey.coverShowName) ?: true,
+    showAuthor = compatDsBoolean(PreferKey.coverShowAuthor) ?: true,
+    textColorDark = compatDsInt(PreferKey.coverTextColorN) ?: -1,
+    shadowColorDark = compatDsInt(PreferKey.coverShadowColorN) ?: -1,
+    showNameDark = compatDsBoolean(PreferKey.coverShowNameN) ?: true,
+    showAuthorDark = compatDsBoolean(PreferKey.coverShowAuthorN) ?: true,
+    infoOrientation = compatDsString(PreferKey.coverInfoOrientation) ?: "0",
+    exploreFilterState = compatDsInt(PreferKey.exploreFilterState) ?: 0,
+    defaultCover = compatDsString(PreferKey.defaultCover).orEmpty(),
+    defaultCoverDark = compatDsString(PreferKey.defaultCoverDark).orEmpty(),
+)
+
+internal fun CoverSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.loadCoverOnlyWifi to loadOnlyOnWifi,
+    PreferKey.useDefaultCover to useDefaultCover,
+    PreferKey.coverShowShadow to showShadow,
+    PreferKey.coverShowStroke to showStroke,
+    PreferKey.coverDefaultColor to useDefaultColor,
+    PreferKey.coverTextColor to textColor,
+    PreferKey.coverShadowColor to shadowColor,
+    PreferKey.coverShowName to showName,
+    PreferKey.coverShowAuthor to showAuthor,
+    PreferKey.coverTextColorN to textColorDark,
+    PreferKey.coverShadowColorN to shadowColorDark,
+    PreferKey.coverShowNameN to showNameDark,
+    PreferKey.coverShowAuthorN to showAuthorDark,
+    PreferKey.coverInfoOrientation to infoOrientation,
+    PreferKey.exploreFilterState to exploreFilterState,
+    PreferKey.defaultCover to defaultCover,
+    PreferKey.defaultCoverDark to defaultCoverDark,
+)
+
+internal fun Preferences.toLabSettings(): LabSettings = LabSettings(
+    enabled = compatDsBoolean(PreferKey.labEnabled) ?: false,
+    eInkDisplay = compatDsBoolean(PreferKey.labEInkDisplay) ?: false,
+    eyeProtection = compatDsBoolean(PreferKey.labEyeProtection) ?: false,
+)
+
+internal fun LabSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.labEnabled to enabled,
+    PreferKey.labEInkDisplay to eInkDisplay,
+    PreferKey.labEyeProtection to eyeProtection,
+)
+
+internal fun Preferences.toTranslationSettings(): TranslationSettings {
+    val storedProvider = compatDsString(PreferKey.llmProvider)
+        ?: TranslationConstants.PROVIDER_GOOGLE
+    return TranslationSettings(
+        provider = if (storedProvider == TranslationConstants.PROVIDER_OPENAI) {
+            TranslationConstants.PROVIDER_APP_AI
+        } else {
+            storedProvider
+        },
+        targetLanguage = compatDsString(PreferKey.llmTargetLanguage) ?: "zh",
+        maxCharsPerChunk = compatDsInt(PreferKey.llmMaxCharsPerChunk) ?: 10000,
+        concurrentChunks = compatDsInt(PreferKey.llmConcurrentChunks) ?: 1,
+        retryCount = compatDsInt(PreferKey.llmRetryCount) ?: 2,
+    )
+}
+
+internal fun TranslationSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.llmProvider to provider,
+    PreferKey.llmTargetLanguage to targetLanguage,
+    PreferKey.llmMaxCharsPerChunk to maxCharsPerChunk,
+    PreferKey.llmConcurrentChunks to concurrentChunks,
+    PreferKey.llmRetryCount to retryCount,
+)
+
+internal fun Preferences.toBackupSettings(): BackupSettings = BackupSettings(
+    webDavUrl = compatDsString(PreferKey.webDavUrl).orEmpty(),
+    webDavAccount = compatDsString(PreferKey.webDavAccount).orEmpty(),
+    webDavPassword = compatDsString(PreferKey.webDavPassword).orEmpty(),
+    webDavDir = compatDsString(PreferKey.webDavDir) ?: "legado",
+    webDavDeviceName = compatDsString(PreferKey.webDavDeviceName).orEmpty(),
+    syncBookProgress = compatDsBoolean(PreferKey.syncBookProgress) ?: true,
+    syncBookProgressPlus = compatDsBoolean(PreferKey.syncBookProgressPlus) ?: false,
+    autoCheckNewBackup = compatDsBoolean(PreferKey.autoCheckNewBackup) ?: true,
+    onlyLatestBackup = compatDsBoolean(PreferKey.onlyLatestBackup) ?: true,
+    backupSyncMode = compatDsString(PreferKey.backupSyncMode) ?: "both",
+    backupPath = compatDsString(PreferKey.backupPath),
+)
+
+internal fun BackupSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.webDavUrl to webDavUrl,
+    PreferKey.webDavAccount to webDavAccount,
+    PreferKey.webDavPassword to webDavPassword,
+    PreferKey.webDavDir to webDavDir,
+    PreferKey.webDavDeviceName to webDavDeviceName,
+    PreferKey.syncBookProgress to syncBookProgress,
+    PreferKey.syncBookProgressPlus to syncBookProgressPlus,
+    PreferKey.autoCheckNewBackup to autoCheckNewBackup,
+    PreferKey.onlyLatestBackup to onlyLatestBackup,
+    PreferKey.backupSyncMode to backupSyncMode,
+    PreferKey.backupPath to backupPath,
+)
+
+internal fun Preferences.toAppShellSettings(): AppShellSettings = AppShellSettings(
     themeMode = compatDsString(PreferKey.themeMode) ?: "0",
     fontScale = compatDsInt(PreferKey.fontScale) ?: 10,
     composeEngine = compatDsString(PreferKey.composeEngine) ?: "material",
@@ -395,7 +305,33 @@ private fun Preferences.toAppShellSettings(): AppShellSettings = AppShellSetting
     launcherIcon = compatDsString(PreferKey.launcherIcon) ?: "ic_launcher",
 )
 
-private fun Preferences.toThemeSettings(): ThemeSettings = ThemeSettings(
+internal fun AppShellSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.themeMode to themeMode,
+    PreferKey.fontScale to fontScale,
+    PreferKey.composeEngine to composeEngine,
+    PreferKey.showHome to showHome,
+    PreferKey.showDiscovery to showDiscovery,
+    PreferKey.showRss to showRss,
+    PreferKey.showStatusBar to showStatusBar,
+    PreferKey.swipeAnimation to swipeAnimation,
+    PreferKey.isPredictiveBackEnabled to predictiveBackEnabled,
+    PreferKey.showBottomView to showBottomView,
+    PreferKey.useFloatingBottomBar to useFloatingBottomBar,
+    PreferKey.useFloatingBottomBarLiquidGlass to useFloatingBottomBarLiquidGlass,
+    PreferKey.tabletInterface to tabletInterface,
+    PreferKey.labelVisibilityMode to labelVisibilityMode,
+    PreferKey.defaultHomePage to defaultHomePage,
+    PreferKey.mainNavigationOrder to mainNavigationOrder,
+    PreferKey.navExtended to navExtended,
+    PreferKey.navIconHome to navIconHome,
+    PreferKey.navIconBookshelf to navIconBookshelf,
+    PreferKey.navIconExplore to navIconExplore,
+    PreferKey.navIconRss to navIconRss,
+    PreferKey.navIconMy to navIconMy,
+    PreferKey.launcherIcon to launcherIcon,
+)
+
+internal fun Preferences.toThemeSettings(): ThemeSettings = ThemeSettings(
     appTheme = compatDsString(PreferKey.appTheme) ?: "0",
     useMiuixMonet = compatDsBoolean(PreferKey.useMiuixMonet) ?: false,
     isPureBlack = compatDsBoolean(PreferKey.pureBlack) ?: false,
@@ -420,6 +356,15 @@ private fun Preferences.toThemeSettings(): ThemeSettings = ThemeSettings(
     themeBackgroundColorNight = compatDsInt(PreferKey.themeBackgroundColorNight) ?: 0,
     labelContainerColorNight = compatDsInt(PreferKey.labelContainerColorNight) ?: 0,
     containerOpacity = compatDsInt(PreferKey.containerOpacity) ?: 100,
+    overrideBaseCardCornerRadius =
+        compatDsBoolean(PreferKey.overrideBaseCardCornerRadius) ?: false,
+    baseCardCornerRadius = compatDsFloat(PreferKey.baseCardCornerRadius) ?: 16f,
+    overrideBaseCardBorder = compatDsBoolean(PreferKey.overrideBaseCardBorder) ?: false,
+    baseCardBorderWidth = compatDsFloat(PreferKey.baseCardBorderWidth) ?: 1f,
+    baseCardBorderColor = compatDsInt(PreferKey.baseCardBorderColor) ?: 0,
+    baseCardBorderColorNight = compatDsInt(PreferKey.baseCardBorderColorNight) ?: 0,
+    disableSplicedColumnGroupCornerRadius =
+        compatDsBoolean(PreferKey.disableSplicedColumnGroupCornerRadius) ?: false,
     topBarOpacity = compatDsInt(PreferKey.topBarOpacity) ?: 100,
     bottomBarOpacity = compatDsInt(PreferKey.bottomBarOpacity) ?: 100,
     enableBlur = compatDsBoolean(PreferKey.enableBlur) ?: false,
@@ -435,16 +380,25 @@ private fun Preferences.toThemeSettings(): ThemeSettings = ThemeSettings(
         compatDsString(PreferKey.bookInfoNetworkCoverBackground) ?: "on",
     bookInfoDefaultCoverBackground =
         compatDsString(PreferKey.bookInfoDefaultCoverBackground) ?: "on",
+    bookInfoInputColor = compatDsInt(PreferKey.bookInfoInputColor) ?: 0,
     backgroundImageLight = compatDsString(PreferKey.bgImage),
     backgroundImageDark = compatDsString(PreferKey.bgImageN),
     backgroundImageBlurring = compatDsInt(PreferKey.bgImageBlurring) ?: 0,
     backgroundImageDarkBlurring = compatDsInt(PreferKey.bgImageNBlurring) ?: 0,
+    largeContainerBackgroundImageLight = compatDsString(PreferKey.largeContainerBackgroundImageLight),
+    largeContainerBackgroundImageDark = compatDsString(PreferKey.largeContainerBackgroundImageDark),
+    itemBackgroundImageLight = compatDsString(PreferKey.itemBackgroundImageLight),
+    itemBackgroundImageDark = compatDsString(PreferKey.itemBackgroundImageDark),
+    enableContainerBackgroundImage = compatDsBoolean(PreferKey.enableContainerBackgroundImage) ?: false,
+    appColumnBackgroundOpacity = compatDsInt(PreferKey.appColumnBackgroundOpacity) ?: 100,
+    glassCardBackgroundOpacity = compatDsInt(PreferKey.glassCardBackgroundOpacity) ?: 100,
     enableItemDivider = compatDsBoolean(PreferKey.enableItemDivider) ?: false,
     itemDividerWidth = compatDsFloat(PreferKey.itemDividerWidth) ?: 1f,
     itemDividerLength = compatDsFloat(PreferKey.itemDividerLength) ?: 80f,
     itemDividerColor = compatDsInt(PreferKey.itemDividerColor) ?: 0,
     eyeProtectionEnabled = compatDsBoolean(PreferKey.eyeProtectionEnabled) ?: false,
     colorTemperature = compatDsInt(PreferKey.colorTemperature) ?: 50,
+    eyeProtectionAutoNight = compatDsBoolean(PreferKey.eyeProtectionAutoNight) ?: false,
     eyeProtectionSchedule = compatDsBoolean(PreferKey.eyeProtectionSchedule) ?: false,
     eyeProtectionStartTime = compatDsString(PreferKey.eyeProtectionStartTime) ?: "22:00",
     eyeProtectionEndTime = compatDsString(PreferKey.eyeProtectionEndTime) ?: "07:00",
@@ -455,58 +409,153 @@ private fun Preferences.toThemeSettings(): ThemeSettings = ThemeSettings(
     customTagColorsJson = compatDsString(PreferKey.customTagColors),
 )
 
+/**
+ * Theme gateway 的 60 键写入边界。主题包专用的 [ThemeSettings.customMode] 与
+ * [ThemeSettings.bookInfoInputColor] 由 ThemePackageSettingsGateway 的事务路径持久化。
+ */
+internal fun ThemeSettings.toGatewayPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.appTheme to appTheme,
+    PreferKey.useMiuixMonet to useMiuixMonet,
+    PreferKey.pureBlack to isPureBlack,
+    PreferKey.paletteStyle to paletteStyle,
+    PreferKey.materialVersion to materialVersion,
+    PreferKey.customContrast to customContrast,
+    PreferKey.appFontPath to appFontPath,
+    PreferKey.cPrimary to customPrimary,
+    PreferKey.cNPrimary to customNightPrimary,
+    PreferKey.enableDeepPersonalization to enableDeepPersonalization,
+    PreferKey.themeColor to themeColor,
+    PreferKey.secondaryThemeColor to secondaryThemeColor,
+    PreferKey.primaryTextColor to primaryTextColor,
+    PreferKey.secondaryTextColor to secondaryTextColor,
+    PreferKey.themeBackgroundColor to themeBackgroundColor,
+    PreferKey.labelContainerColor to labelContainerColor,
+    PreferKey.themeColorNight to themeColorNight,
+    PreferKey.secondaryThemeColorNight to secondaryThemeColorNight,
+    PreferKey.primaryTextColorNight to primaryTextColorNight,
+    PreferKey.secondaryTextColorNight to secondaryTextColorNight,
+    PreferKey.themeBackgroundColorNight to themeBackgroundColorNight,
+    PreferKey.labelContainerColorNight to labelContainerColorNight,
+    PreferKey.containerOpacity to containerOpacity,
+    PreferKey.overrideBaseCardCornerRadius to overrideBaseCardCornerRadius,
+    PreferKey.baseCardCornerRadius to baseCardCornerRadius,
+    PreferKey.overrideBaseCardBorder to overrideBaseCardBorder,
+    PreferKey.baseCardBorderWidth to baseCardBorderWidth,
+    PreferKey.baseCardBorderColor to baseCardBorderColor,
+    PreferKey.baseCardBorderColorNight to baseCardBorderColorNight,
+    PreferKey.disableSplicedColumnGroupCornerRadius to disableSplicedColumnGroupCornerRadius,
+    PreferKey.topBarOpacity to topBarOpacity,
+    PreferKey.bottomBarOpacity to bottomBarOpacity,
+    PreferKey.enableBlur to enableBlur,
+    PreferKey.enableProgressiveBlur to enableProgressiveBlur,
+    PreferKey.topBarBlurRadius to topBarBlurRadius,
+    PreferKey.bottomBarBlurRadius to bottomBarBlurRadius,
+    PreferKey.topBarBlurAlpha to topBarBlurAlpha,
+    PreferKey.bottomBarBlurAlpha to bottomBarBlurAlpha,
+    PreferKey.bottomBarLensRadius to bottomBarLensRadius,
+    PreferKey.useFlexibleTopAppBar to useFlexibleTopAppBar,
+    PreferKey.bookInfoFollowCoverColor to bookInfoFollowCoverColor,
+    PreferKey.bookInfoNetworkCoverBackground to bookInfoNetworkCoverBackground,
+    PreferKey.bookInfoDefaultCoverBackground to bookInfoDefaultCoverBackground,
+    PreferKey.bgImage to backgroundImageLight,
+    PreferKey.bgImageN to backgroundImageDark,
+    PreferKey.bgImageBlurring to backgroundImageBlurring,
+    PreferKey.bgImageNBlurring to backgroundImageDarkBlurring,
+    PreferKey.largeContainerBackgroundImageLight to largeContainerBackgroundImageLight,
+    PreferKey.largeContainerBackgroundImageDark to largeContainerBackgroundImageDark,
+    PreferKey.itemBackgroundImageLight to itemBackgroundImageLight,
+    PreferKey.itemBackgroundImageDark to itemBackgroundImageDark,
+    PreferKey.enableContainerBackgroundImage to enableContainerBackgroundImage,
+    PreferKey.appColumnBackgroundOpacity to appColumnBackgroundOpacity,
+    PreferKey.glassCardBackgroundOpacity to glassCardBackgroundOpacity,
+    PreferKey.enableItemDivider to enableItemDivider,
+    PreferKey.itemDividerWidth to itemDividerWidth,
+    PreferKey.itemDividerLength to itemDividerLength,
+    PreferKey.itemDividerColor to itemDividerColor,
+    PreferKey.eyeProtectionEnabled to eyeProtectionEnabled,
+    PreferKey.colorTemperature to colorTemperature,
+    PreferKey.eyeProtectionAutoNight to eyeProtectionAutoNight,
+    PreferKey.eyeProtectionSchedule to eyeProtectionSchedule,
+    PreferKey.eyeProtectionStartTime to eyeProtectionStartTime,
+    PreferKey.eyeProtectionEndTime to eyeProtectionEndTime,
+    io.legado.app.data.local.preferences.LocalPreferencesKeys.SHOW_THEME_REFACTOR_TIP.name to
+        showRefactorTip,
+    PreferKey.enableCustomTagColors to enableCustomTagColors,
+    PreferKey.customTagColors to customTagColorsJson,
+)
+
+internal fun Preferences.toOtherSettings(): OtherSettings {
+    val rawSourceEditMaxLine = compatDsInt(PreferKey.sourceEditMaxLine) ?: Int.MAX_VALUE
+    return OtherSettings(
+        updateToVariant = compatDsString(PreferKey.updateToVariant) ?: "official_version",
+        autoCheckUpdateOnStart = compatDsBoolean(PreferKey.autoCheckUpdateOnStart) ?: false,
+        webServiceAutoStart = compatDsBoolean(PreferKey.webServiceAutoStart) ?: false,
+        autoRefresh = compatDsBoolean(PreferKey.autoRefresh) ?: false,
+        defaultToRead = compatDsBoolean(PreferKey.defaultToRead) ?: false,
+        notificationsPost = compatDsBoolean(PreferKey.notificationsPost) ?: true,
+        ignoreBatteryPermission = compatDsBoolean(PreferKey.ignoreBatteryPermission) ?: true,
+        firebaseEnable = compatDsBoolean(PreferKey.firebaseEnable) ?: true,
+        defaultBookTreeUri = compatDsString(PreferKey.defaultBookTreeUri),
+        antiAlias = compatDsBoolean(PreferKey.antiAlias) ?: false,
+        replaceEnableDefault = compatDsBoolean(PreferKey.replaceEnableDefault) ?: true,
+        autoClearExpired = compatDsBoolean(PreferKey.autoClearExpired) ?: true,
+        showAddToShelfAlert = compatDsBoolean(PreferKey.showAddToShelfAlert) ?: true,
+        showMangaUi = compatDsBoolean(PreferKey.showMangaUi) ?: true,
+        webServiceWakeLock = compatDsBoolean(PreferKey.webServiceWakeLock) ?: false,
+        sourceEditMaxLine = rawSourceEditMaxLine.takeIf { it >= 10 } ?: Int.MAX_VALUE,
+        webPort = compatDsInt(PreferKey.webPort) ?: 1122,
+        processText = compatDsBoolean(PreferKey.processText) ?: true,
+        recordLog = compatDsBoolean(PreferKey.recordLog) ?: false,
+        recordHeapDump = compatDsBoolean(PreferKey.recordHeapDump) ?: false,
+        audioPlayUseWakeLock = compatDsBoolean(PreferKey.audioPlayWakeLock) ?: false,
+        importKeepName = compatDsBoolean(PreferKey.importKeepName) ?: false,
+        importKeepGroup = compatDsBoolean(PreferKey.importKeepGroup) ?: false,
+        importKeepEnable = compatDsBoolean(PreferKey.importKeepEnable) ?: false,
+        fontSort = compatDsInt(PreferKey.fontSort) ?: 0,
+    )
+}
+
+internal fun OtherSettings.toPrefMap(): Map<String, Any?> = mapOf(
+    PreferKey.updateToVariant to updateToVariant,
+    PreferKey.autoCheckUpdateOnStart to autoCheckUpdateOnStart,
+    PreferKey.webServiceAutoStart to webServiceAutoStart,
+    PreferKey.autoRefresh to autoRefresh,
+    PreferKey.defaultToRead to defaultToRead,
+    PreferKey.notificationsPost to notificationsPost,
+    PreferKey.ignoreBatteryPermission to ignoreBatteryPermission,
+    PreferKey.firebaseEnable to firebaseEnable,
+    PreferKey.defaultBookTreeUri to defaultBookTreeUri,
+    PreferKey.antiAlias to antiAlias,
+    PreferKey.replaceEnableDefault to replaceEnableDefault,
+    PreferKey.autoClearExpired to autoClearExpired,
+    PreferKey.showAddToShelfAlert to showAddToShelfAlert,
+    PreferKey.showMangaUi to showMangaUi,
+    PreferKey.webServiceWakeLock to webServiceWakeLock,
+    PreferKey.sourceEditMaxLine to sourceEditMaxLine,
+    PreferKey.webPort to webPort,
+    PreferKey.processText to processText,
+    PreferKey.recordLog to recordLog,
+    PreferKey.recordHeapDump to recordHeapDump,
+    PreferKey.audioPlayWakeLock to audioPlayUseWakeLock,
+    PreferKey.importKeepName to importKeepName,
+    PreferKey.importKeepGroup to importKeepGroup,
+    PreferKey.importKeepEnable to importKeepEnable,
+    PreferKey.fontSort to fontSort,
+)
+
 class OtherSettingsRepository : OtherSettingsGateway {
+    override val currentSettings: OtherSettings
+        get() = AppConfigStore.preferences.toOtherSettings()
+
     override val settings: Flow<OtherSettings> = AppConfigStore.preferencesFlow
-        .map { preferences ->
-            val rawSourceEditMaxLine = preferences.compatDsInt(PreferKey.sourceEditMaxLine) ?: Int.MAX_VALUE
-            OtherSettings(
-                updateToVariant = preferences.compatDsString(PreferKey.updateToVariant) ?: "official_version",
-                autoCheckUpdateOnStart =
-                    preferences.compatDsBoolean(PreferKey.autoCheckUpdateOnStart) ?: false,
-                webServiceAutoStart = preferences.compatDsBoolean(PreferKey.webServiceAutoStart) ?: false,
-                autoRefresh = preferences.compatDsBoolean(PreferKey.autoRefresh) ?: false,
-                defaultToRead = preferences.compatDsBoolean(PreferKey.defaultToRead) ?: false,
-                notificationsPost = preferences.compatDsBoolean(PreferKey.notificationsPost) ?: true,
-                ignoreBatteryPermission =
-                    preferences.compatDsBoolean(PreferKey.ignoreBatteryPermission) ?: true,
-                firebaseEnable = preferences.compatDsBoolean(PreferKey.firebaseEnable) ?: true,
-                defaultBookTreeUri = preferences.compatDsString(PreferKey.defaultBookTreeUri),
-                antiAlias = preferences.compatDsBoolean(PreferKey.antiAlias) ?: false,
-                replaceEnableDefault = preferences.compatDsBoolean(PreferKey.replaceEnableDefault) ?: true,
-                autoClearExpired = preferences.compatDsBoolean(PreferKey.autoClearExpired) ?: true,
-                showAddToShelfAlert = preferences.compatDsBoolean(PreferKey.showAddToShelfAlert) ?: true,
-                showMangaUi = preferences.compatDsBoolean(PreferKey.showMangaUi) ?: true,
-                webServiceWakeLock = preferences.compatDsBoolean(PreferKey.webServiceWakeLock) ?: false,
-                sourceEditMaxLine = rawSourceEditMaxLine.takeIf { it >= 10 } ?: Int.MAX_VALUE,
-                webPort = preferences.compatDsInt(PreferKey.webPort) ?: 1122,
-                processText = preferences.compatDsBoolean(PreferKey.processText) ?: true,
-                recordLog = preferences.compatDsBoolean(PreferKey.recordLog) ?: false,
-                recordHeapDump = preferences.compatDsBoolean(PreferKey.recordHeapDump) ?: false,
-            )
-        }
+        .map { it.toOtherSettings() }
         .distinctUntilChanged()
 
-    override suspend fun update(update: OtherSettingsUpdate) {
-        val (key, value) = when (update) {
-            is OtherSettingsUpdate.UpdateToVariant -> PreferKey.updateToVariant to update.value
-            is OtherSettingsUpdate.AutoCheckUpdateOnStart -> PreferKey.autoCheckUpdateOnStart to update.value
-            is OtherSettingsUpdate.WebServiceAutoStart -> PreferKey.webServiceAutoStart to update.value
-            is OtherSettingsUpdate.AutoRefresh -> PreferKey.autoRefresh to update.value
-            is OtherSettingsUpdate.DefaultToRead -> PreferKey.defaultToRead to update.value
-            is OtherSettingsUpdate.FirebaseEnable -> PreferKey.firebaseEnable to update.value
-            is OtherSettingsUpdate.DefaultBookTreeUri -> PreferKey.defaultBookTreeUri to update.value
-            is OtherSettingsUpdate.AntiAlias -> PreferKey.antiAlias to update.value
-            is OtherSettingsUpdate.ReplaceEnableDefault -> PreferKey.replaceEnableDefault to update.value
-            is OtherSettingsUpdate.AutoClearExpired -> PreferKey.autoClearExpired to update.value
-            is OtherSettingsUpdate.ShowAddToShelfAlert -> PreferKey.showAddToShelfAlert to update.value
-            is OtherSettingsUpdate.ShowMangaUi -> PreferKey.showMangaUi to update.value
-            is OtherSettingsUpdate.WebServiceWakeLock -> PreferKey.webServiceWakeLock to update.value
-            is OtherSettingsUpdate.SourceEditMaxLine -> PreferKey.sourceEditMaxLine to update.value
-            is OtherSettingsUpdate.WebPort -> PreferKey.webPort to update.value
-            is OtherSettingsUpdate.ProcessText -> PreferKey.processText to update.value
-            is OtherSettingsUpdate.RecordLog -> PreferKey.recordLog to update.value
-            is OtherSettingsUpdate.RecordHeapDump -> PreferKey.recordHeapDump to update.value
-        }
-        AppConfigStore.putAll(mapOf(key to value))
+    override suspend fun update(transform: (OtherSettings) -> OtherSettings) {
+        AppConfigStore.atomicUpdateAndAwait(
+            read = Preferences::toOtherSettings,
+            toPrefMap = OtherSettings::toPrefMap,
+            transform = transform,
+        )
     }
 }

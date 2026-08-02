@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.TooltipAnchorPosition
@@ -36,7 +37,6 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,13 +50,16 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
 import coil.compose.AsyncImage
 import io.legado.app.R
-import io.legado.app.help.config.ReadBookConfig
+import io.legado.app.data.repository.ReadPreferences
+import io.legado.app.domain.model.settings.ReadStyleItem
 import io.legado.app.help.config.ReadStyleResolver
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.book.read.ConfigUpdate
 import io.legado.app.ui.book.read.ReadBookIntent
+import io.legado.app.ui.book.read.ReadBookSheet
 import io.legado.app.ui.book.read.ReadBookStyleConfig
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.ProvideAppDensity
 import io.legado.app.ui.theme.fadingEdge
 import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import io.legado.app.ui.widget.components.card.NormalCard
@@ -72,34 +75,25 @@ import io.legado.app.ui.widget.components.text.AppText
 @Composable
 fun GlobalThemePage(
     onToggleDayNight: () -> Unit,
+    eyeProtectionEnabled: Boolean,
     onOpenBgTextConfig: (Int) -> Unit,
-    onOpenTextTitle: () -> Unit,
+    onOpenTypographyConfig: () -> Unit,
     onOpenPaddingConfig: () -> Unit,
     onShareLayoutChange: (Boolean) -> Unit,
     onStyleSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     onIntent: (ReadBookIntent) -> Unit,
     styleConfig: ReadBookStyleConfig = ReadBookStyleConfig(),
+    preferences: ReadPreferences = ReadPreferences(),
 ) {
     // Derive values directly from styleConfig (reactive state)
     val textSize = styleConfig.textSize
     val pageAnim = styleConfig.pageAnim
     val styleSelect = styleConfig.styleSelect
     val shareLayout = styleConfig.shareLayout
+    val isNightTheme = LegadoTheme.isDark
 
-    val configList = remember(
-        styleConfig.configCount,
-        styleConfig.styleName,
-        styleConfig.bgAlpha,
-        styleConfig.bgType,
-        styleConfig.bgStr,
-        styleConfig.textColor,
-        styleConfig.bgTypeNight,
-        styleConfig.bgStrNight,
-        styleConfig.textColorNight,
-    ) {
-        ReadBookConfig.configList.map { it.copy() }
-    }
+    val configList = styleConfig.styleItems
 
     Column(
         modifier = modifier
@@ -121,7 +115,7 @@ fun GlobalThemePage(
                 },
             )
             NormalCard(
-                onClick = onOpenTextTitle,
+                onClick = onOpenTypographyConfig,
                 modifier = Modifier
                     .height(56.dp)
                     .aspectRatio(1f),
@@ -134,8 +128,8 @@ fun GlobalThemePage(
                 ) {
                     Icon(
                         imageVector = Icons.Default.TextFields,
-                        contentDescription = stringResource(R.string.read_config_text_effects),
-                        tint = LegadoTheme.colorScheme.onSurfaceVariant
+                        contentDescription = stringResource(R.string.compose_type),
+                        tint = LegadoTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -150,6 +144,7 @@ fun GlobalThemePage(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 12.dp, end = 12.dp, top = 12.dp),
@@ -165,7 +160,17 @@ fun GlobalThemePage(
                         color = LegadoTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                val isNightTheme = LegadoTheme.isDark
+                SmallTonalButton(
+                    onClick = { onIntent(ReadBookIntent.ToggleEyeProtection) },
+                    onLongClick = {
+                        onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.EyeProtection))
+                    },
+                    selected = eyeProtectionEnabled,
+                    icon = Icons.Default.Visibility,
+                    contentColor = LegadoTheme.colorScheme.onSurfaceVariant,
+                    containerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
+                    contentDescription = stringResource(R.string.eye_protection),
+                )
                 SmallTonalButton(
                     onClick = onToggleDayNight,
                     icon = if (isNightTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
@@ -191,14 +196,16 @@ fun GlobalThemePage(
                         TooltipAnchorPosition.Above
                     ),
                     tooltip = {
-                        PlainTooltip(
-                            containerColor = LegadoTheme.colorScheme.surfaceContainerLow,
-                            contentColor = LegadoTheme.colorScheme.onSurface,
-                        ) {
-                            AppText(
-                                text = stringResource(R.string.share_layout),
-                                style = LegadoTheme.typography.bodyMedium,
-                            )
+                        ProvideAppDensity {
+                            PlainTooltip(
+                                containerColor = LegadoTheme.colorScheme.surfaceContainerLow,
+                                contentColor = LegadoTheme.colorScheme.onSurface,
+                            ) {
+                                AppText(
+                                    text = stringResource(R.string.share_layout),
+                                    style = LegadoTheme.typography.bodyMedium,
+                                )
+                            }
                         }
                     },
                     state = rememberTooltipState(),
@@ -264,6 +271,7 @@ fun GlobalThemePage(
                         StyleCard(
                             config = config,
                             isSelected = styleSelect == index,
+                            isNightTheme = isNightTheme,
                             onClick = {
                                 onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.StyleSelect(index)))
                                 onStyleSelect(index)
@@ -359,16 +367,13 @@ fun GlobalThemePage(
                     .height(56.dp)
                     .aspectRatio(1f),
                 containerColor = LegadoTheme.colorScheme.surfaceContainerLow,
-                cornerRadius = 12.dp
+                cornerRadius = 12.dp,
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Icon(
                         imageVector = Icons.Default.SpaceBar,
                         contentDescription = stringResource(R.string.padding),
-                        tint = LegadoTheme.colorScheme.onSurfaceVariant
+                        tint = LegadoTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -380,32 +385,41 @@ fun GlobalThemePage(
 
 @Composable
 fun StyleCard(
-    config: ReadBookConfig.Config,
+    config: ReadStyleItem,
     isSelected: Boolean,
+    isNightTheme: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val bgType = config.curBgType()
+    val mode = ReadStyleResolver.currentMode(isNightTheme)
+    val bgType = when (mode) {
+        ReadStyleResolver.ReadStyleMode.Day -> config.bgType
+        ReadStyleResolver.ReadStyleMode.Night -> config.bgTypeNight
+        ReadStyleResolver.ReadStyleMode.EInk -> config.bgTypeEInk
+    }
+    val bgValue = when (mode) {
+        ReadStyleResolver.ReadStyleMode.Day -> config.bgValue
+        ReadStyleResolver.ReadStyleMode.Night -> config.bgValueNight
+        ReadStyleResolver.ReadStyleMode.EInk -> config.bgValueEInk
+    }
     val bgColor = if (bgType == 0) {
         try {
-            Color(config.curBgStr().toColorInt())
+            Color(bgValue.toColorInt())
         } catch (_: Exception) {
             LegadoTheme.colorScheme.surface
         }
     } else {
         LegadoTheme.colorScheme.surface
     }
-    val textColor = Color(config.curTextColor())
+    val textColor = Color(
+        when (mode) {
+            ReadStyleResolver.ReadStyleMode.Day -> config.textColor
+            ReadStyleResolver.ReadStyleMode.Night -> config.textColorNight
+            ReadStyleResolver.ReadStyleMode.EInk -> config.textColorEInk
+        }
+    )
     val name = config.name.ifBlank { stringResource(R.string.text_bg_style) }
-    val bgPath = if (bgType != 0) {
-        ReadStyleResolver.backgroundPath(config, when {
-            ReadStyleResolver.currentMode() == ReadStyleResolver.ReadStyleMode.Night -> 1
-            ReadStyleResolver.currentMode() == ReadStyleResolver.ReadStyleMode.EInk -> 2
-            else -> 0
-        })
-    } else {
-        null
-    }
+    val bgPath = ReadStyleResolver.backgroundPath(bgType, bgValue)
 
     NormalCard(
         modifier = Modifier
