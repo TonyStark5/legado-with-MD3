@@ -42,7 +42,7 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
@@ -502,6 +502,9 @@ internal fun loadToolButtons(
         },
         infoMap.getValue("translate").toButton(isActive = state.translationMode) {
             onIntent(ReadBookIntent.ToggleTranslation)
+        },
+        infoMap.getValue("refresh_current").toButton {
+            onIntent(ReadBookIntent.RefreshCurrentChapter)
         },
         infoMap.getValue("ai_summary").toButton {
             onIntent(ReadBookIntent.OpenChapterSummary)

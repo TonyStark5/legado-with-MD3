@@ -400,19 +400,30 @@ internal val ReadBookButtonIds = listOf(
     "replace",
     "replace_badge",
     "translate",
+    "refresh_current",
 )
 
 internal val MoreActionIds = listOf(
     "change_source", "refresh", "download", "edit_content", "add_bookmark",
     "text_processing", "reverse_content", "re_segment",
     "del_ruby", "del_h", "toc_rule", "charset", "image_style", "page_anim",
-    "simulated_reading", "get_progress", "cover_progress", "log",
+    "simulated_reading", "get_progress", "cover_progress", "highlight_rule",
+    "bottom_button_config", "log",
+)
+
+@Immutable
+data class ReadBookInitRequest(
+    val bookUrl: String? = null,
+    val inBookshelf: Boolean = true,
+    val chapterChanged: Boolean = false,
+    val chapterIndex: Int = -1,
+    val chapterPos: Int = -1,
 )
 
 sealed interface ReadBookIntent {
     // Initialization
-    data class InitData(val intent: android.content.Intent) : ReadBookIntent
-    data class InitReadBookConfig(val intent: android.content.Intent) : ReadBookIntent
+    data class InitData(val request: ReadBookInitRequest) : ReadBookIntent
+    data class InitReadBookConfig(val request: ReadBookInitRequest) : ReadBookIntent
     data class CheckSwitchDayNight(val lux: Float) : ReadBookIntent
     data object DismissReminder : ReadBookIntent
 

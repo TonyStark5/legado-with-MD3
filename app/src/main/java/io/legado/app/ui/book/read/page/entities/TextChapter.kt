@@ -8,9 +8,9 @@ import io.legado.app.data.entities.BookContentProcess
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.ReplaceRule
 import io.legado.app.help.book.BookContent
+import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
 import io.legado.app.ui.book.read.page.provider.TextChapterLayout
-import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.utils.fastBinarySearchBy
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.abs
@@ -203,7 +203,7 @@ data class TextChapter(
         val stringBuilder = StringBuilder()
         if (pages.isNotEmpty()) {
             for (index in pageIndex..min(pageEndIndex, pages.lastIndex)) {
-                stringBuilder.append(pages[index].text.replace(Regex("[袮꧁]"), " "))
+                stringBuilder.append(pages[index].text.replace(Regex("[袮祢꧁]"), " "))
                 if (pageSplit && !stringBuilder.endsWith("\n")) {
                     stringBuilder.append("\n")
                 }
@@ -216,13 +216,19 @@ data class TextChapter(
         position: Int,
         pageSplit: Boolean,
     ): Int {
+        return findReadAloudParagraphNum(getParagraphs(pageSplit), position) ?: -1
+    }
+
+    /**
+     * Resolves a position between paragraphs to the next readable paragraph.
+     * Returns -1 only when the position is beyond all laid-out paragraphs.
+     */
+    fun getParagraphNumAtOrAfter(
+        position: Int,
+        pageSplit: Boolean,
+    ): Int {
         val paragraphs = getParagraphs(pageSplit)
-        paragraphs.forEach { paragraph ->
-            if (position in paragraph.chapterIndices) {
-                return paragraph.num
-            }
-        }
-        return -1
+        return findReadAloudParagraphNumAtOrAfter(paragraphs, position) ?: -1
     }
 
     fun getParagraphs(pageSplit: Boolean): List<TextParagraph> {
@@ -352,3 +358,14 @@ data class TextChapter(
     }
 
 }
+
+internal fun findReadAloudParagraphNum(
+    paragraphs: List<TextParagraph>,
+    position: Int,
+): Int? = paragraphs.firstOrNull { position in it.chapterIndices }?.num
+
+internal fun findReadAloudParagraphNumAtOrAfter(
+    paragraphs: List<TextParagraph>,
+    position: Int,
+): Int? = findReadAloudParagraphNum(paragraphs, position)
+    ?: paragraphs.firstOrNull { it.chapterIndices.last >= position }?.num

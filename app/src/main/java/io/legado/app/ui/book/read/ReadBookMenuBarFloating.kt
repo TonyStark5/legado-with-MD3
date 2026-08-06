@@ -46,7 +46,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.kyant.backdrop.Backdrop
 import io.legado.app.R
 import io.legado.app.data.entities.Book
@@ -401,6 +401,7 @@ private fun loadFloatingIcons(
             }
         },
         "translate" to { onIntent(ReadBookIntent.ToggleTranslation) },
+        "refresh_current" to { onIntent(ReadBookIntent.RefreshCurrentChapter) },
         "ai_summary" to { onIntent(ReadBookIntent.OpenChapterSummary) },
         "ai_rewrite" to { onIntent(ReadBookIntent.OpenAiCurrentChapterRewrite) },
         "more_actions" to { onIntent(ReadBookIntent.ShowSheet(ReadBookSheet.MoreActions)) },

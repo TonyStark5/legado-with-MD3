@@ -3,6 +3,7 @@ package io.legado.app.ui.widget.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,13 +19,13 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.legado.app.domain.model.settings.hasBackgroundImage
 import io.legado.app.ui.theme.LegadoTheme
-import io.legado.app.ui.theme.LocalHazeState
 import io.legado.app.ui.theme.LocalAppUiConfiguration
+import io.legado.app.ui.theme.LocalHazeState
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.responsiveHazeSource
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -105,7 +106,9 @@ fun AppScaffold(
                                 )
                                 .then(
                                     if (contentDrawsBehindBars) Modifier
-                                    else Modifier.padding(scaffoldPadding)
+                                    else Modifier
+                                        .padding(scaffoldPadding)
+                                        .consumeWindowInsets(scaffoldPadding)
                                 )
                         ) {
                             content(
@@ -147,7 +150,9 @@ fun AppScaffold(
                                 )
                                 .then(
                                     if (contentDrawsBehindBars) Modifier
-                                    else Modifier.padding(scaffoldPadding)
+                                    else Modifier
+                                        .padding(scaffoldPadding)
+                                        .consumeWindowInsets(scaffoldPadding)
                                 )
                         ) {
                             content(

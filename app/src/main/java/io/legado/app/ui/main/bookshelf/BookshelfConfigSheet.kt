@@ -432,6 +432,15 @@ fun BookshelfConfigSheet(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             CompactSwitchSettingItem(
+                                title = stringResource(R.string.center_cover_vertically),
+                                description = stringResource(R.string.center_cover_vertically_description),
+                                checked = settings.bookshelfListCoverCenter,
+                                color = LegadoTheme.colorScheme.surface,
+                                onCheckedChange = { value ->
+                                    onUpdate { it.copy(bookshelfListCoverCenter = value) }
+                                }
+                            )
+                            CompactSwitchSettingItem(
                                 title = stringResource(R.string.show_latest_chapter),
                                 checked = settings.bookshelfShowLatestChapter,
                                 color = LegadoTheme.colorScheme.surface,
@@ -448,6 +457,16 @@ fun BookshelfConfigSheet(
                                     onUpdate { it.copy(bookshelfShowIntro = value) }
                                 }
                             )
+                            AnimatedVisibility(visible = settings.bookshelfShowIntro && layoutMode == 0) {
+                                CompactSwitchSettingItem(
+                                    title = stringResource(R.string.show_synopsis_below_content),
+                                    checked = settings.bookshelfListIntroBelowContent,
+                                    color = LegadoTheme.colorScheme.surface,
+                                    onCheckedChange = { value ->
+                                        onUpdate { it.copy(bookshelfListIntroBelowContent = value) }
+                                    }
+                                )
+                            }
                             AnimatedVisibility(
                                 visible = settings.bookshelfShowIntro
                             ) {
