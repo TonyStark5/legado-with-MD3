@@ -59,6 +59,7 @@ import io.legado.app.ui.book.read.page.ReaderEventListener
 import io.legado.app.ui.book.read.page.ReaderPageSource
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.sheet.ReaderBookSheetRoute
+import io.legado.app.ui.book.read.sheet.ReaderBookSourceActions
 import io.legado.app.ui.book.read.sheet.TextSelectMenuConfigSheet
 import io.legado.app.ui.book.searchContent.SearchContentResult
 import io.legado.app.ui.book.toc.TocActivityResult
@@ -139,6 +140,7 @@ fun ReadBookRouteScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
     val highlightRuleState by viewModel.highlightRuleState.collectAsStateWithLifecycle()
+    val markingState by viewModel.markingState.collectAsStateWithLifecycle()
     val contentEditState by viewModel.contentEditState.collectAsStateWithLifecycle()
     val contentProcessState by viewModel.contentProcessState.collectAsStateWithLifecycle()
     val readPreferences by viewModel.readPreferences.collectAsStateWithLifecycle()
@@ -270,6 +272,12 @@ fun ReadBookRouteScreen(
         if (id != null && uri != null) {
             viewModel.onIntent(ReadBookIntent.SaveTitleBarCustomIcon(id, uri))
         }
+    }
+
+    val bookmarkBadgeImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { viewModel.onIntent(ReadBookIntent.BookmarkBadgeImageSelected(it)) }
     }
 
     val txtTocRuleLauncher = rememberLauncherForActivityResult(
@@ -595,6 +603,7 @@ fun ReadBookRouteScreen(
                 state = state,
                 aiState = aiState,
                 highlightRuleState = highlightRuleState,
+                markingState = markingState,
                 contentEditState = contentEditState,
                 contentProcessState = contentProcessState,
                 preferences = readPreferences,
@@ -604,6 +613,8 @@ fun ReadBookRouteScreen(
                     viewModel.onIntent(ReadBookIntent.DismissSheet)
                     showSelectMenuConfigSheet = true
                 },
+                onPickBookmarkBadgeImage = { bookmarkBadgeImagePicker.launch("image/*") },
+                onResetBookmarkBadge = { viewModel.onIntent(ReadBookIntent.ClearBookmarkBadgeImage) },
             )
             val bookNavigationSheet = state.activeSheet as? ReadBookSheet.BookNavigation
             ReaderBookSheetRoute(
@@ -616,6 +627,19 @@ fun ReadBookRouteScreen(
                     viewModel.onIntent(ReadBookIntent.DismissSheet)
                     viewModel.onIntent(ReadBookIntent.OpenChapterResult(index, chapterPos))
                 },
+                onBookmarkNavigate = { bookmark ->
+                    viewModel.onIntent(ReadBookIntent.NavigateToBookmark(bookmark))
+                },
+                onMarkingNavigate = { item ->
+                    viewModel.onIntent(
+                        ReadBookIntent.NavigateToMarking(
+                            marking = item.raw,
+                        )
+                    )
+                },
+                onMarkingEdit = { markingId ->
+                    viewModel.onIntent(ReadBookIntent.EditMarking(markingId))
+                },
                 onOpenFullBookInfo = {
                     state.book?.let { book ->
                         viewModel.onIntent(ReadBookIntent.DismissSheet)
@@ -626,6 +650,17 @@ fun ReadBookRouteScreen(
                         }
                     }
                 },
+                bookSource = state.bookSource,
+                onOpenChapterUrl = { viewModel.onIntent(ReadBookIntent.OpenChapterUrl) },
+                onToggleReadUrlInBrowser = {
+                    viewModel.onIntent(ReadBookIntent.ToggleReadUrlInBrowser)
+                },
+                sourceActions = ReaderBookSourceActions(
+                    onLogin = { viewModel.onIntent(ReadBookIntent.ShowLogin) },
+                    onPay = { viewModel.onIntent(ReadBookIntent.PayAction) },
+                    onEdit = { viewModel.onIntent(ReadBookIntent.OpenSourceEdit) },
+                    onDisable = { viewModel.onIntent(ReadBookIntent.DisableSource) },
+                ),
             )
             TextActionSelectionMenu(
                 menuState = textMenuState,

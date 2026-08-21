@@ -23,9 +23,13 @@ import io.legado.app.constant.PageAnim
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
+import io.legado.app.data.entities.BookContentProcess
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.HighlightRule
 import io.legado.app.data.repository.HighlightRuleRepository
+import io.legado.app.domain.model.BookContentProcessEngine
+import io.legado.app.domain.model.TextProcessAnchor
+import io.legado.app.domain.model.TextProcessStyle
 import io.legado.app.help.book.BookContent
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.getBookSource
@@ -398,14 +402,15 @@ class TextChapterLayout(
                 //图片样式为文字嵌入类型
                 val srcList = LinkedList<String>()
                 sb.setLength(0)
-                val matcher = AppPattern.imgPattern.matcher(text)
-                while (matcher.find()) {
-                    matcher.group(1)?.let { src ->
-                        srcList.add(src)
-                        matcher.appendReplacement(sb, srcReplaceChar)
-                    }
+                var last = 0
+                for (m in AppPattern.imgPattern.findAll(text)) {
+                    val src = m.groupValues[1]
+                    srcList.add(src)
+                    sb.append(text, last, m.range.first)
+                    sb.append(srcReplaceChar)
+                    last = m.range.last + 1
                 }
-                matcher.appendTail(sb)
+                sb.append(text, last, text.length)
                 text = sb.toString()
                 wordCount += text.replace(noWordCountRegex,"").length
                 setTypeText(
@@ -430,17 +435,16 @@ class TextChapterLayout(
                 sb.setLength(0)
                 var isFirstLine = true
                 if (content.contains("<img")) {
-                    val matcher = AppPattern.imgPattern.matcher(text)
-                    while (matcher.find()) {
+                    for (m in AppPattern.imgPattern.findAll(text)) {
                         currentCoroutineContext().ensureActive()
-                        val imgSrc = matcher.group(1)!!
+                        val imgSrc = m.groupValues[1]
                         var iStyle: String? = null
                         var click: String? = null
                         var imgSize = ImageProvider.getImageSize(book, imgSrc, bookSource)
-                        val urlMatcher = paramPattern.matcher(imgSrc)
-                        if (urlMatcher.find()) {
+                        val urlMatch = paramPattern.find(imgSrc)
+                        if (urlMatch != null) {
                             var width: String? = null
-                            val urlOptionStr = imgSrc.substring(urlMatcher.end())
+                            val urlOptionStr = imgSrc.substring(urlMatch.range.last + 1)
                             GSON.fromJsonObject<Map<String, String>>(urlOptionStr).getOrNull()
                                 ?.let { map ->
                                     map.forEach { (key, value) ->
@@ -471,8 +475,8 @@ class TextChapterLayout(
                                 if (imgSize.width < 80 && imgSize.height < 80) "text" else imageStyle
                         }
 
-                        if (start < matcher.start()) {
-                            val textPart = text.substring(start, matcher.start())
+                        if (start < m.range.first) {
+                            val textPart = text.substring(start, m.range.first)
                             sb.append(textPart)
                         }
                         if (iStyle == "text" || iStyle == "TEXT") {
@@ -505,7 +509,7 @@ class TextChapterLayout(
                             bodyHighlightOffset += 1
                             isSetTypedImage = true
                         }
-                        start = matcher.end()
+                        start = m.range.last + 1
                     }
                 }
                 if (start < content.length) {
@@ -722,9 +726,9 @@ class TextChapterLayout(
                 spanned.getSpans(charIndex, charIndex + 1, ImageSpan::class.java).firstOrNull()
                     ?.let { span -> //处理图片
                         val source = span.source ?: return@let
-                        val urlMatcher = paramPattern.matcher(source)
-                        if (urlMatcher.find()) {
-                            val urlOptionStr = source.substring(urlMatcher.end())
+                        val urlMatch = paramPattern.find(source)
+                        if (urlMatch != null) {
+                            val urlOptionStr = source.substring(urlMatch.range.last + 1)
                             val style =
                                 GSON.fromJsonObject<Map<String, String>>(urlOptionStr).getOrNull()
                                     ?: return@let
@@ -1441,6 +1445,7 @@ class TextChapterLayout(
                     npRight = style?.npRight ?: 0.1f,
                     npTop = style?.npTop ?: 0.1f,
                     npBottom = style?.npBottom ?: 0.1f,
+                    markingId = style?.markingId,
                 )
             }
         }
@@ -1601,21 +1606,73 @@ class TextChapterLayout(
         contents: List<String>,
     ): HighlightStyleContext? {
         val rules = compiledHighlightRules
-        if (rules.isEmpty()) return null
-        val titleStyles = createHighlightStyles(
-            text = buildTitleHighlightText(titleSegments),
-            isTitle = true,
-            rules = rules
-        )
+        val markings = textChapter.effectiveContentProcesses.filter { it.isUserMarking() }
+        if (rules.isEmpty() && markings.isEmpty()) return null
+        val titleStyles = if (rules.isEmpty()) {
+            null
+        } else {
+            createHighlightStyles(
+                text = buildTitleHighlightText(titleSegments),
+                isTitle = true,
+                rules = rules
+            )
+        }
         val bodyHighlightText = buildBodyHighlightText(contents)
-        val bodyStyles = createHighlightStyles(
-            text = bodyHighlightText.text,
-            isTitle = false,
-            rules = rules
-        )
+        var bodyStyles = if (rules.isEmpty()) {
+            null
+        } else {
+            createHighlightStyles(
+                text = bodyHighlightText.text,
+                isTitle = false,
+                rules = rules
+            )
+        }
+        bodyStyles = applyUserMarkings(bodyStyles, bodyHighlightText.text, markings)
         if (titleStyles == null && bodyStyles == null) return null
         return HighlightStyleContext(titleStyles, bodyStyles, bodyHighlightText.contentOffsets)
     }
+
+    /**
+     * 把用户划线/高亮标记的样式合并进每字符样式数组。锚点按文本 + 章节位置就近匹配，
+     * 标记是显式操作，覆盖同位置的正则高亮规则。
+     */
+    private fun applyUserMarkings(
+        existing: Array<CharStyle?>?,
+        bodyText: String,
+        markings: List<BookContentProcess>,
+    ): Array<CharStyle?>? {
+        if (markings.isEmpty()) return existing
+        var styles = existing
+        for (process in markings) {
+            val anchor = GSON.fromJsonObject<TextProcessAnchor>(process.anchorJson).getOrNull()
+                ?: continue
+            val style = GSON.fromJsonObject<TextProcessStyle>(process.styleJson).getOrNull()
+                ?: continue
+            val range = BookContentProcessEngine.resolveRange(bodyText, anchor) ?: continue
+            if (bodyText.isEmpty()) break
+            val active = styles ?: arrayOfNulls<CharStyle>(bodyText.length).also { styles = it }
+            val charStyle = style.toCharStyle(process.id.removePrefix("mark:"))
+            for (i in range.first.coerceAtLeast(0)..range.last.coerceAtMost(active.lastIndex)) {
+                active[i] = charStyle
+            }
+        }
+        return styles
+    }
+
+    private fun TextProcessStyle.toCharStyle(markingId: String? = null): CharStyle = CharStyle(
+        textColor = textColor,
+        bgColor = bgColor,
+        underlineMode = underlineMode,
+        underlineColor = underlineColor ?: textColor ?: 0xFF63C37D.toInt(),
+        underlineWidth = underlineWidth,
+        underlineOffset = underlineOffset,
+        underlineSvgPath = underlineSvgPath.orEmpty(),
+        markingId = markingId,
+    )
+
+    private fun BookContentProcess.isUserMarking(): Boolean =
+        kind == BookContentProcess.KIND_USER_UNDERLINE ||
+                kind == BookContentProcess.KIND_USER_HIGHLIGHT
 
     private fun buildTitleHighlightText(titleSegments: List<TitleSegment>?): String {
         if (titleSegments.isNullOrEmpty()) return ""
@@ -1650,15 +1707,16 @@ class TextChapterLayout(
     }
 
     private fun String.replaceImagesForHighlight(): String {
-        val matcher = AppPattern.imgPattern.matcher(this)
-        if (!matcher.find()) return this
+        val iterator = AppPattern.imgPattern.findAll(this).iterator()
+        if (!iterator.hasNext()) return this
         return buildString(length) {
             var start = 0
             do {
-                append(this@replaceImagesForHighlight, start, matcher.start())
+                val m = iterator.next()
+                append(this@replaceImagesForHighlight, start, m.range.first)
                 append(srcReplaceChar)
-                start = matcher.end()
-            } while (matcher.find())
+                start = m.range.last + 1
+            } while (iterator.hasNext())
             append(this@replaceImagesForHighlight, start, this@replaceImagesForHighlight.length)
         }
     }

@@ -1,6 +1,7 @@
 package io.legado.app.ui.book.readaloud.player
 
 import androidx.compose.runtime.Stable
+import io.legado.app.ui.widget.components.player.PlayerChapterUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -8,14 +9,6 @@ import kotlinx.collections.immutable.persistentListOf
 data class ReadAloudTextLineUi(
     val text: String,
     val chapterPosition: Int,
-)
-
-@Stable
-data class ReadAloudChapterUi(
-    val index: Int,
-    val title: String,
-    val isVolume: Boolean,
-    val tocLevel: Int,
 )
 
 @Stable
@@ -27,7 +20,7 @@ data class ReadAloudPlayerUiState(
     val sourceOrigin: String? = null,
     val chapterIndex: Int = -1,
     val chapterTitle: String = "",
-    val chapters: ImmutableList<ReadAloudChapterUi> = persistentListOf(),
+    val chapters: ImmutableList<PlayerChapterUi> = persistentListOf(),
     val chapterText: String = "",
     val textLines: ImmutableList<ReadAloudTextLineUi> = persistentListOf(),
     val activeTextLine: Int = -1,
@@ -40,6 +33,7 @@ data class ReadAloudPlayerUiState(
     val isPaused: Boolean = false,
     val speed: Int = 10,
     val timerMinutes: Int = 0,
+    val finishCurrentChapterAfterTimer: Boolean = false,
     val bgMode: Int = 0,
 )
 
@@ -57,6 +51,7 @@ sealed interface ReadAloudPlayerIntent {
     data class SetBgMode(val value: Int) : ReadAloudPlayerIntent
     data class SetSpeed(val value: Int) : ReadAloudPlayerIntent
     data class SetTimer(val minutes: Int) : ReadAloudPlayerIntent
+    data class SetFinishCurrentChapterAfterTimer(val value: Boolean) : ReadAloudPlayerIntent
     data class SeekTo(val chapterPosition: Int) : ReadAloudPlayerIntent
 }
 

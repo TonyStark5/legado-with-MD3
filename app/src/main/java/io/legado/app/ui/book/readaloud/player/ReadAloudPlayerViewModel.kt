@@ -6,6 +6,7 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.constant.ReadAloudBgMode
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.compatDsInt
+import io.legado.app.ui.widget.components.player.PlayerChapterUi
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,7 +52,13 @@ class ReadAloudPlayerViewModel(
             is ReadAloudPlayerIntent.SetSpeed -> viewModelScope.launch {
                 coordinator.setSpeed(intent.value)
             }
-            is ReadAloudPlayerIntent.SetTimer -> coordinator.setTimer(intent.minutes)
+            is ReadAloudPlayerIntent.SetTimer -> viewModelScope.launch {
+                coordinator.setTimer(intent.minutes)
+            }
+            is ReadAloudPlayerIntent.SetFinishCurrentChapterAfterTimer ->
+                viewModelScope.launch {
+                    coordinator.setFinishCurrentChapterAfterTimer(intent.value)
+                }
             is ReadAloudPlayerIntent.SeekTo -> coordinator.seekTo(
                 chapterPosition = intent.chapterPosition,
                 chapterLength = uiState.value.chapterLength,
@@ -64,7 +71,7 @@ class ReadAloudPlayerViewModel(
             ReadAloudBgMode.Solid -> ReadAloudBgMode.Blur
             ReadAloudBgMode.Blur -> ReadAloudBgMode.FlowingLight
             ReadAloudBgMode.FlowingLight -> ReadAloudBgMode.Transparent
-            else -> ReadAloudBgMode.Blur
+            else -> ReadAloudBgMode.Solid
         }
         AppConfigStore.putInt(PreferKey.readAloudPlayerBgMode, next)
     }
@@ -77,7 +84,7 @@ class ReadAloudPlayerViewModel(
             it.chapterPosition <= source.chapterPosition
         }
         val chapters = source.chapters.map { chapter ->
-            ReadAloudChapterUi(
+            PlayerChapterUi(
                 index = chapter.index,
                 title = chapter.title,
                 isVolume = chapter.isVolume,
@@ -105,6 +112,7 @@ class ReadAloudPlayerViewModel(
             isPaused = source.isPaused,
             speed = source.speed,
             timerMinutes = source.timerMinutes,
+            finishCurrentChapterAfterTimer = source.finishCurrentChapterAfterTimer,
             bgMode = bgMode,
         )
     }

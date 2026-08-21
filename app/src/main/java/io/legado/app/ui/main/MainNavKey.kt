@@ -30,7 +30,9 @@ data class MainRouteWebView(
 ) : MainRoute
 
 @Serializable
-data object MainRouteBookSourceManage : MainRoute
+data class MainRouteBookSourceManage(
+    val importUrl: String? = null,
+) : MainRoute
 
 @Serializable
 data class MainRouteBookSourceEdit(val sourceUrl: String? = null) : MainRoute
@@ -130,6 +132,19 @@ data class MainRouteReadBook(
     val readAloud: Boolean = false,
     val inBookshelf: Boolean = true,
     val chapterChanged: Boolean = false,
+) : MainRoute
+
+@Serializable
+data class MainRouteReadManga(
+    val bookUrl: String? = null,
+    val inBookshelf: Boolean = true,
+    val chapterChanged: Boolean = false,
+) : MainRoute
+
+@Serializable
+data class MainRouteAudioPlay(
+    val bookUrl: String? = null,
+    val inBookshelf: Boolean = true,
 ) : MainRoute
 
 @Serializable
@@ -254,6 +269,8 @@ object MainRouteConst {
     const val ROUTE_CACHE = "cache"
     const val ROUTE_BOOK_CACHE_MANAGE = "book/cache/manage"
     const val ROUTE_READ_BOOK = "book/read"
+    const val ROUTE_READ_MANGA = "book/read/manga"
+    const val ROUTE_AUDIO_PLAY = "book/read/audio"
     const val ROUTE_SEARCH = "search"
     const val ROUTE_SEARCH_CONTENT = "book/searchContent"
     const val ROUTE_BOOK_INFO = "book/info"

@@ -22,6 +22,7 @@ object MainIntent {
     const val EXTRA_CHAPTER_CHANGED = "chapterChanged"
     const val EXTRA_EXPLORE_NAME = "exploreName"
     const val EXTRA_SOURCE_URL = "sourceUrl"
+    const val EXTRA_BOOK_SOURCE_IMPORT = "bookSourceImport"
     const val EXTRA_SOURCE_LOGIN_TYPE = "source_login_type"
     const val EXTRA_SOURCE_LOGIN_KEY = "source_login_key"
     const val EXTRA_EXPLORE_URL = "exploreUrl"
@@ -65,6 +66,10 @@ object MainIntent {
         sourceKey: String? = null,
         bookUrl: String? = null,
     ): Intent = createLauncherIntent(context).apply {
+        // NEW_TASK: 支持从 Application context（如 RssJsExtensions）启动；
+        // SINGLE_TOP: MainActivity 已在栈顶时复用现有实例走 onNewIntent，直接把登录路由
+        // 压进 nav3 back stack，避免 standard launchMode 下新建 MainActivity 先回主页面。
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_SOURCE_LOGIN)
         putExtra(EXTRA_SOURCE_LOGIN_TYPE, type.name)
         putExtra(EXTRA_SOURCE_LOGIN_KEY, sourceKey)
@@ -82,6 +87,9 @@ object MainIntent {
         refetchAfterSuccess: Boolean = true,
         html: String? = null,
     ): Intent = createLauncherIntent(context).apply {
+        // NEW_TASK: 支持从 Application context（如 SourceVerificationHelp）启动；
+        // SINGLE_TOP: MainActivity 已在栈顶时复用现有实例走 onNewIntent，直接把路由压进 nav3 back stack。
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_WEB_VIEW)
         putExtra(EXTRA_WEB_VIEW_TITLE, title)
         putExtra(EXTRA_WEB_VIEW_URL, url)
@@ -93,9 +101,14 @@ object MainIntent {
         putExtra(EXTRA_WEB_VIEW_HTML, html)
     }
 
-    fun createBookSourceManageIntent(context: Context): Intent =
+    fun createBookSourceManageIntent(
+        context: Context,
+        importSource: String? = null,
+    ): Intent =
         createLauncherIntent(context).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_BOOK_SOURCE_MANAGE)
+            putExtra(EXTRA_BOOK_SOURCE_IMPORT, importSource)
         }
 
     fun createBookSourceEditIntent(context: Context, sourceUrl: String? = null): Intent =
@@ -198,6 +211,30 @@ object MainIntent {
             putExtra(EXTRA_IN_BOOKSHELF, inBookshelf)
             putExtra(EXTRA_CHAPTER_CHANGED, chapterChanged)
         }
+    }
+
+    fun createReadMangaIntent(
+        context: Context,
+        bookUrl: String? = null,
+        inBookshelf: Boolean = true,
+        chapterChanged: Boolean = false,
+    ): Intent = createLauncherIntent(context).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_READ_MANGA)
+        bookUrl?.let { putExtra(EXTRA_BOOK_URL, it) }
+        putExtra(EXTRA_IN_BOOKSHELF, inBookshelf)
+        putExtra(EXTRA_CHAPTER_CHANGED, chapterChanged)
+    }
+
+    fun createAudioPlayIntent(
+        context: Context,
+        bookUrl: String? = null,
+        inBookshelf: Boolean = true,
+    ): Intent = createLauncherIntent(context).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_AUDIO_PLAY)
+        bookUrl?.let { putExtra(EXTRA_BOOK_URL, it) }
+        putExtra(EXTRA_IN_BOOKSHELF, inBookshelf)
     }
 
     fun createSearchIntent(

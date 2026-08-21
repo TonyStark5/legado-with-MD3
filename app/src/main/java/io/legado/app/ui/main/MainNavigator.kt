@@ -17,12 +17,25 @@ object MainNavigator {
 
     var backNavigationInProgress = false
         private set
-    private val navigationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val navigationScope by lazy(LazyThreadSafetyMode.NONE) {
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    }
     private var backNavigationResetJob: Job? = null
 
     fun navigateToRoute(backStack: MutableList<NavKey>, route: NavKey) {
         val currentRoute = backStack.lastOrNull()
         if (currentRoute == route) return
+
+        if (route is MainRouteReadManga) {
+            val existingReaderIndex = backStack.indexOfLast { it is MainRouteReadManga }
+            if (existingReaderIndex >= 0) {
+                while (backStack.lastIndex > existingReaderIndex) {
+                    backStack.removeAt(backStack.lastIndex)
+                }
+                backStack[existingReaderIndex] = route
+                return
+            }
+        }
 
         // 导航动画和阅读页组合要花几百毫秒, 这段时间足够把正文读出来并排版好
         if (route is MainRouteReadBook && !route.chapterChanged) {
@@ -36,7 +49,7 @@ object MainNavigator {
 
             is MainRouteWebView -> backStack.add(route)
 
-            MainRouteBookSourceManage,
+            is MainRouteBookSourceManage,
             is MainRouteBookSourceEdit,
             MainRouteRssSourceManage,
             is MainRouteRssSourceEdit,
@@ -94,8 +107,29 @@ object MainNavigator {
             MainRouteImportRemote,
             is MainRouteCache,
             MainRouteBookCacheManage,
-            is MainRouteReadBook -> {
+            is MainRouteReadBook,
+            is MainRouteReadManga -> {
                 if (
+                    currentRoute == MainRouteHome ||
+                    currentRoute is MainRouteBookInfo
+                ) {
+                    backStack.add(route)
+                } else {
+                    backStack.clear()
+                    backStack.add(MainRouteHome)
+                    backStack.add(route)
+                }
+            }
+
+            is MainRouteAudioPlay -> {
+                // 播放器为单例语义：已在栈上（如通知栏再次进入）则替换，避免叠加多个播放界面
+                val existingAudioIndex = backStack.indexOfLast { it is MainRouteAudioPlay }
+                if (existingAudioIndex >= 0) {
+                    while (backStack.lastIndex > existingAudioIndex) {
+                        backStack.removeAt(backStack.lastIndex)
+                    }
+                    backStack[existingAudioIndex] = route
+                } else if (
                     currentRoute == MainRouteHome ||
                     currentRoute is MainRouteBookInfo
                 ) {
@@ -131,7 +165,8 @@ object MainNavigator {
                     currentRoute == MainRouteHome ||
                     currentRoute is MainRouteSearch ||
                     currentRoute is MainRouteExploreShow ||
-                    currentRoute is MainRouteBookInfo
+                    currentRoute is MainRouteBookInfo ||
+                    currentRoute is MainRouteReadManga
                 ) {
                     backStack.add(route)
                 } else {
@@ -163,7 +198,8 @@ object MainNavigator {
                     currentRoute is MainRouteBookKnowledgeDetail ||
                     currentRoute is MainRouteBookEventList ||
                     currentRoute is MainRouteBookEventDetail ||
-                    currentRoute is MainRouteReadBook
+                    currentRoute is MainRouteReadBook ||
+                    currentRoute is MainRouteReadManga
                 ) {
                     backStack.add(route)
                 } else {
@@ -355,7 +391,9 @@ object MainNavigator {
                     )
                 } ?: MainRouteHome
 
-            MainRouteConst.ROUTE_BOOK_SOURCE_MANAGE -> MainRouteBookSourceManage
+            MainRouteConst.ROUTE_BOOK_SOURCE_MANAGE -> MainRouteBookSourceManage(
+                intent?.getStringExtra(MainIntent.EXTRA_BOOK_SOURCE_IMPORT)
+            )
             MainRouteConst.ROUTE_BOOK_SOURCE_EDIT -> MainRouteBookSourceEdit(
                 intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
             )
@@ -402,6 +440,18 @@ object MainNavigator {
                     MainIntent.EXTRA_CHAPTER_CHANGED,
                     false
                 ) == true,
+            )
+            MainRouteConst.ROUTE_READ_MANGA -> MainRouteReadManga(
+                bookUrl = intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL),
+                inBookshelf = intent?.getBooleanExtra(MainIntent.EXTRA_IN_BOOKSHELF, true) != false,
+                chapterChanged = intent?.getBooleanExtra(
+                    MainIntent.EXTRA_CHAPTER_CHANGED,
+                    false,
+                ) == true,
+            )
+            MainRouteConst.ROUTE_AUDIO_PLAY -> MainRouteAudioPlay(
+                bookUrl = intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL),
+                inBookshelf = intent?.getBooleanExtra(MainIntent.EXTRA_IN_BOOKSHELF, true) != false,
             )
             MainRouteConst.ROUTE_SEARCH -> MainRouteSearch(
                 key = intent?.getStringExtra(MainIntent.EXTRA_SEARCH_KEY),

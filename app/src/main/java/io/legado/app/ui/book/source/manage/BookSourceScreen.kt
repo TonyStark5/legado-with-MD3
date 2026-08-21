@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.service.BookSourceCheckService
+import io.legado.app.ui.qrcode.QrCodeResult
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.ActionItem
@@ -84,6 +85,9 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 @Composable
 fun BookSourceRouteScreen(
     viewModel: BookSourceViewModel = koinViewModel(),
+    initialImportUrl: String? = null,
+    closeAfterImport: Boolean = false,
+    onImportClosed: () -> Unit = {},
     onBackClick: () -> Unit,
     onAddSource: () -> Unit,
     onEditSource: (String) -> Unit,
@@ -91,6 +95,9 @@ fun BookSourceRouteScreen(
     onSearchSource: (String, String) -> Unit,
     onDebugSource: (String) -> Unit,
 ) {
+    LaunchedEffect(initialImportUrl) {
+        initialImportUrl?.let { viewModel.onIntent(BookSourceIntent.Import(it)) }
+    }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -103,6 +110,10 @@ fun BookSourceRouteScreen(
                 }
 
                 BookSourceEffect.CancelCheck -> BookSourceCheckService.stop(context)
+
+                BookSourceEffect.ImportFinished -> {
+                    if (closeAfterImport) onImportClosed()
+                }
 
                 is BookSourceEffect.ShowSnackbar -> {
                     val result = snackbarHostState.showSnackbar(
@@ -123,6 +134,9 @@ fun BookSourceRouteScreen(
         state = state,
         onIntent = viewModel::onIntent,
         snackbarHostState = snackbarHostState,
+        onImportDismissed = {
+            if (closeAfterImport) onImportClosed()
+        },
         onBackClick = onBackClick,
         onAddSource = onAddSource,
         onEditSource = onEditSource,
@@ -138,6 +152,7 @@ fun BookSourceScreen(
     state: BookSourceUiState,
     onIntent: (BookSourceIntent) -> Unit,
     snackbarHostState: SnackbarHostState,
+    onImportDismissed: () -> Unit = {},
     onBackClick: () -> Unit,
     onAddSource: () -> Unit,
     onEditSource: (String) -> Unit,
@@ -205,6 +220,10 @@ fun BookSourceScreen(
                 }
             }
         }
+    val qrCodeImport =
+        rememberLauncherForActivityResult(QrCodeResult()) { result ->
+            result?.let { onIntent(BookSourceIntent.Import(it)) }
+        }
     val exportDocument =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
             uri?.let { onIntent(BookSourceIntent.Export(it, pendingExportIds)) }
@@ -232,7 +251,10 @@ fun BookSourceScreen(
     BatchImportDialog(
         title = stringResource(R.string.import_book_source),
         importState = state.importState,
-        onDismissRequest = { onIntent(BookSourceIntent.CancelImport) },
+        onDismissRequest = {
+            onIntent(BookSourceIntent.CancelImport)
+            onImportDismissed()
+        },
         onConfirm = { onIntent(BookSourceIntent.SaveImportedSources) },
         onToggleItem = { onIntent(BookSourceIntent.ToggleImportItem(it)) },
         onToggleAll = { onIntent(BookSourceIntent.ToggleImportAll(it)) },
@@ -246,7 +268,7 @@ fun BookSourceScreen(
         },
         topBarActions = {
             Box {
-                SmallPlainButton(
+                MediumTonalButton(
                     modifier = Modifier.minimumInteractiveComponentSize(),
                     icon = AppIcons.MoreVert,
                     contentDescription = stringResource(R.string.menu),
@@ -508,6 +530,9 @@ fun BookSourceScreen(
                 )
                 })
             RoundDropdownMenuItem(
+                text = stringResource(R.string.import_by_qr_code),
+                onClick = { dismiss(); qrCodeImport.launch(null) })
+            RoundDropdownMenuItem(
                 text = stringResource(R.string.import_on_line),
                 onClick = { dismiss(); showOnlineImport = true })
             RoundDropdownMenuItem(
@@ -654,7 +679,6 @@ fun BookSourceScreen(
                             contentDescription = itemDescription,
                             trailingAction = {
                                 SmallPlainButton(
-                                    modifier = Modifier.minimumInteractiveComponentSize(),
                                     icon = AppIcons.Edit,
                                     contentDescription = stringResource(R.string.edit),
                                     onClick = { onEditSource(item.id) },
@@ -791,7 +815,6 @@ private fun BookSourceItemMenu(
     var expanded by remember { mutableStateOf(false) }
     Box {
         SmallPlainButton(
-            modifier = Modifier.minimumInteractiveComponentSize(),
             icon = AppIcons.MoreVert,
             contentDescription = stringResource(R.string.menu),
             onClick = { expanded = true },

@@ -53,7 +53,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -67,7 +66,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import cn.hutool.core.date.DateUtil
 import io.legado.app.R
 import io.legado.app.data.entities.readRecord.ReadRecord
 import io.legado.app.data.entities.readRecord.ReadRecordDetail
@@ -81,7 +79,6 @@ import io.legado.app.ui.widget.components.CollapsibleHeader
 import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.SearchBar
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
-import io.legado.app.ui.widget.components.button.AppIconButton
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.card.TextCard
 import io.legado.app.ui.widget.components.checkBox.CheckboxItem
@@ -97,7 +94,6 @@ import io.legado.app.ui.widget.components.heatmap.heatmapCalendarTitle
 import io.legado.app.ui.widget.components.heatmap.rememberDateRange
 import io.legado.app.ui.widget.components.heatmap.rememberDaysInRange
 import io.legado.app.ui.widget.components.heatmap.rememberWeeks
-import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.image.cover.CoilBookCover
 import io.legado.app.ui.widget.components.list.TopFloatingStickyItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
@@ -108,14 +104,19 @@ import io.legado.app.ui.widget.components.swipe.SwipeActionContainer
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.topbar.GlassMediumFlexibleTopAppBar
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
+import io.legado.app.ui.widget.components.topbar.TopBarActionButton
 import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import io.legado.app.utils.StringUtils.formatFriendlyDate
 import io.legado.app.utils.formatReadDuration
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
 import org.koin.androidx.compose.koinViewModel
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Date
 
 data class TimelineItem(
     val session: ReadRecordSession,
@@ -140,6 +141,9 @@ fun ReadRecordRouteScreen(
         onBackClick = onBackClick,
         onBookClick = onBookClick,
         onSummaryClick = onSummaryClick,
+        onScanRepair = { viewModel.onIntent(ReadRecordIntent.ScanRepair) },
+        onRepairDatabase = { viewModel.onIntent(ReadRecordIntent.RepairDatabase) },
+        effects = viewModel.effects,
     )
 }
 
@@ -154,10 +158,14 @@ fun ReadRecordScreen(
     onBackClick: () -> Unit,
     onBookClick: (String, String) -> Unit,
     onSummaryClick: () -> Unit,
+    effects: Flow<ReadRecordEffect> = emptyFlow(),
+    onScanRepair: () -> Unit = {},
+    onRepairDatabase: () -> Unit = {},
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+    val noMergeCandidatesMessage = stringResource(R.string.no_merge_candidates)
+    val operationFailedMessage = stringResource(R.string.operation_failed)
 
     val displayMode = state.displayMode
     val readRecordEnabled = state.readRecordEnabled
@@ -169,6 +177,16 @@ fun ReadRecordScreen(
     val listState = rememberLazyListState()
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
     val inSelectionMode = selectedItemKeys.isNotEmpty()
+
+    LaunchedEffect(Unit) {
+        effects.collectLatest { effect ->
+            when (effect) {
+                is ReadRecordEffect.ShowError -> {
+                    snackbarHostState.showSnackbar(effect.message.ifBlank { operationFailedMessage })
+                }
+            }
+        }
+    }
 
     var skipDeleteConfirm by remember { mutableStateOf(false) }
     var pendingDeleteAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -256,7 +274,7 @@ fun ReadRecordScreen(
                     },
                     actions = {
                         if (inSelectionMode) {
-                            AppIconButton(
+                            TopBarActionButton(
                                 onClick = {
                                     val action = {
                                         deleteSelectedReadRecords(
@@ -267,44 +285,44 @@ fun ReadRecordScreen(
                                         selectedItemKeys = emptySet()
                                     }
                                     onConfirmDelete(selectedItemKeys.size, action)
-                                }
-                            ) {
-                                AppIcon(
-                                    Icons.Default.Delete,
-                                    contentDescription = stringResource(R.string.delete_selected)
-                                )
-                            }
+                                },
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.delete_selected)
+                            )
                         } else {
-                            AppIconButton(onClick = {
-                                val newMode = when (displayMode) {
-                                    DisplayMode.AGGREGATE -> DisplayMode.TIMELINE
-                                    DisplayMode.TIMELINE -> DisplayMode.LATEST
-                                    DisplayMode.LATEST -> DisplayMode.AGGREGATE
-                                }
-                                onIntent(ReadRecordIntent.SetDisplayMode(newMode))
-                                selectedItemKeys = emptySet()
-                            }) {
-                                val icon = when (displayMode) {
-                                    DisplayMode.AGGREGATE -> Icons.Default.Timeline
-                                    DisplayMode.TIMELINE -> Icons.Default.Schedule
-                                    DisplayMode.LATEST -> Icons.AutoMirrored.Filled.List
-                                }
-                                val description = when (displayMode) {
-                                    DisplayMode.AGGREGATE -> stringResource(R.string.a11y_switch_to_timeline_view)
-                                    DisplayMode.TIMELINE -> stringResource(R.string.a11y_switch_to_latest_view)
-                                    DisplayMode.LATEST -> stringResource(R.string.a11y_switch_to_aggregate_view)
-                                }
-                                AppIcon(icon, description)
+                            val (icon, description) = when (displayMode) {
+                                DisplayMode.AGGREGATE -> Icons.Default.Timeline to
+                                        stringResource(R.string.a11y_switch_to_timeline_view)
+
+                                DisplayMode.TIMELINE -> Icons.Default.Schedule to
+                                        stringResource(R.string.a11y_switch_to_latest_view)
+
+                                DisplayMode.LATEST -> Icons.AutoMirrored.Filled.List to
+                                        stringResource(R.string.a11y_switch_to_aggregate_view)
                             }
-                            AppIconButton(onClick = { showSearch = !showSearch }) {
-                                AppIcon(Icons.Default.Search, contentDescription = stringResource(R.string.search))
-                            }
-                            AppIconButton(onClick = { showActionsSheet = true }) {
-                                AppIcon(
-                                    Icons.Default.MoreVert,
-                                    contentDescription = stringResource(R.string.more_actions)
-                                )
-                            }
+                            TopBarActionButton(
+                                onClick = {
+                                    val newMode = when (displayMode) {
+                                        DisplayMode.AGGREGATE -> DisplayMode.TIMELINE
+                                        DisplayMode.TIMELINE -> DisplayMode.LATEST
+                                        DisplayMode.LATEST -> DisplayMode.AGGREGATE
+                                    }
+                                    onIntent(ReadRecordIntent.SetDisplayMode(newMode))
+                                    selectedItemKeys = emptySet()
+                                },
+                                imageVector = icon,
+                                contentDescription = description
+                            )
+                            TopBarActionButton(
+                                onClick = { showSearch = !showSearch },
+                                imageVector = Icons.Default.Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
+                            TopBarActionButton(
+                                onClick = { showActionsSheet = true },
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.more_actions)
+                            )
                         }
                     },
                     scrollBehavior = scrollBehavior
@@ -397,7 +415,7 @@ fun ReadRecordScreen(
                                         val candidates = loadMergeCandidates(record)
                                         if (candidates.isEmpty()) {
                                             snackbarHostState.showSnackbar(
-                                                context.getString(R.string.no_merge_candidates)
+                                                noMergeCandidatesMessage
                                             )
                                         } else {
                                             mergeDialogData = record to candidates
@@ -456,8 +474,26 @@ fun ReadRecordScreen(
                 onIntent(ReadRecordIntent.ClearRecords)
                 selectedItemKeys = emptySet()
             }
-        }
+        },
+        onScanRepair = { showActionsSheet = false; onScanRepair() },
+        onRepairDatabase = { showActionsSheet = false; onRepairDatabase() }
     )
+
+    state.repairReport?.let { report ->
+        AppAlertDialog(
+            show = true,
+            onDismissRequest = { onIntent(ReadRecordIntent.DismissRepairReport) },
+            title = stringResource(R.string.read_record_repair_title),
+            text = stringResource(
+                R.string.read_record_repair_message,
+                report.mergedCount,
+                report.exceptionCount,
+                report.duplicateSessionCount,
+            ),
+            confirmText = stringResource(R.string.ok),
+            onConfirm = { onIntent(ReadRecordIntent.DismissRepairReport) },
+        )
+    }
 
     var skipDeleteConfirmTemp by remember(pendingDeleteAction != null) { mutableStateOf(false) }
 
@@ -607,7 +643,9 @@ private fun ReadRecordActionsSheet(
     onDismissRequest: () -> Unit,
     onToggleCalendar: () -> Unit,
     onReadRecordEnabledChange: (Boolean) -> Unit,
-    onClearReadRecords: () -> Unit
+    onClearReadRecords: () -> Unit,
+    onScanRepair: () -> Unit,
+    onRepairDatabase: () -> Unit,
 ) {
     AppModalBottomSheet(
         show = show,
@@ -635,10 +673,21 @@ private fun ReadRecordActionsSheet(
                 onCheckedChange = onReadRecordEnabledChange
             )
             CompactClickableSettingItem(
+                title = stringResource(R.string.read_record_scan_issues),
+                description = stringResource(R.string.read_record_scan_issues_summary),
+                imageVector = Icons.Default.Search,
+                onClick = onScanRepair
+            )
+            CompactClickableSettingItem(
+                title = stringResource(R.string.read_record_repair),
+                description = stringResource(R.string.read_record_repair_summary),
+                imageVector = Icons.Default.Merge,
+                onClick = onRepairDatabase
+            )
+            CompactClickableSettingItem(
                 title = stringResource(R.string.clear_read_records),
                 description = stringResource(R.string.clear_read_records_summary),
                 imageVector = Icons.Default.Delete,
-                color = LegadoTheme.colorScheme.error,
                 onClick = onClearReadRecords
             )
         }
@@ -1015,7 +1064,9 @@ fun LatestReadItem(
     }
     val unknownAuthor = stringResource(R.string.unknown_author)
     val author = record.bookAuthor.ifBlank { unknownAuthor }
-    val lastReadText = DateUtil.format(Date(record.lastRead), "yyyy-MM-dd HH:mm")
+    val lastReadText = Instant.ofEpochMilli(record.lastRead)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
     val itemDescription = stringResource(
         R.string.a11y_read_record_latest_item,
         record.bookName,
@@ -1112,7 +1163,9 @@ fun TimelineSessionItem(
         chapterTitle = title ?: fallbackChapterTitle
     }
 
-    val endTimeText = DateUtil.format(Date(session.endTime), "HH:mm")
+    val endTimeText = Instant.ofEpochMilli(session.endTime)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("HH:mm"))
     val unknownAuthor = stringResource(R.string.unknown_author)
     val author = session.bookAuthor.ifBlank { unknownAuthor }
     val duration = formatDuring(session.endTime - session.startTime)

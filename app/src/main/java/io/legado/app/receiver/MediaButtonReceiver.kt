@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.view.KeyEvent
 import io.legado.app.constant.EventBus
+import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.help.LifecycleHelp
 import io.legado.app.help.config.AppConfig
@@ -13,7 +14,6 @@ import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.AudioPlayService
 import io.legado.app.service.BaseReadAloudService
-import io.legado.app.ui.book.audio.AudioPlayActivity
 import io.legado.app.ui.main.MainActivity
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.getPrefBoolean
@@ -48,7 +48,7 @@ class MediaButtonReceiver : BroadcastReceiver() {
                     LogUtils.d(TAG, "Receive mediaButton event, keycode:$keycode")
                     when (keycode) {
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                            if (context.getPrefBoolean("mediaButtonPerNext", false)) {
+                            if (context.getPrefBoolean(PreferKey.mediaButtonPerNext, false)) {
                                 ReadBook.moveToPrevChapter(true)
                             } else {
                                 ReadAloud.prevParagraph(context)
@@ -56,7 +56,7 @@ class MediaButtonReceiver : BroadcastReceiver() {
                         }
 
                         KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                            if (context.getPrefBoolean("mediaButtonPerNext", false)) {
+                            if (context.getPrefBoolean(PreferKey.mediaButtonPerNext, false)) {
                                 ReadBook.moveToNextChapter(true)
                             } else {
                                 ReadAloud.nextParagraph(context)
@@ -94,10 +94,7 @@ class MediaButtonReceiver : BroadcastReceiver() {
                     // break
                 }
 
-                MainActivity.hasActiveReadBookRoute ->
-                    postEvent(EventBus.MEDIA_BUTTON, true)
-
-                LifecycleHelp.isExistActivity(AudioPlayActivity::class.java) ->
+                MainActivity.hasActiveReadBookRoute || MainActivity.hasActiveAudioPlayRoute ->
                     postEvent(EventBus.MEDIA_BUTTON, true)
 
                 else -> if (AppConfig.mediaButtonOnExit || LifecycleHelp.activitySize() > 0 || !isMediaKey) {

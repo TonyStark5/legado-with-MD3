@@ -16,6 +16,7 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookProgress
 import io.legado.app.data.local.preferences.LocalPreferencesKeys
 import io.legado.app.data.repository.BookRepository
+import io.legado.app.data.repository.ReadRecordRepository
 import io.legado.app.data.repository.BookSourceRepository
 import io.legado.app.data.repository.BookmarkRepository
 import io.legado.app.data.repository.HighlightRuleRepository
@@ -44,9 +45,12 @@ import io.legado.app.domain.usecase.ChangeBookSourceUseCase
 import io.legado.app.domain.usecase.CleanSelectedTextUseCase
 import io.legado.app.domain.usecase.GenerateChapterSummaryUseCase
 import io.legado.app.domain.usecase.GetReadingProgressUseCase
+import io.legado.app.domain.usecase.RelocateMarkingTargetUseCase
 import io.legado.app.domain.usecase.SaveBookContentProcessUseCase
+import io.legado.app.domain.usecase.SaveMarkingUseCase
 import io.legado.app.domain.usecase.SyncReadAloudVoicesUseCase
 import io.legado.app.domain.usecase.UploadReadingProgressUseCase
+import io.legado.app.domain.usecase.VerifyBookmarkTargetUseCase
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
@@ -95,6 +99,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -121,6 +126,9 @@ class ReadBookViewModel(
     private val cleanSelectedTextUseCase: CleanSelectedTextUseCase,
     private val aiTextFactoryUseCase: AiTextFactoryUseCase,
     private val saveBookContentProcessUseCase: SaveBookContentProcessUseCase,
+    private val saveMarkingUseCase: SaveMarkingUseCase,
+    private val verifyBookmarkTargetUseCase: VerifyBookmarkTargetUseCase,
+    private val relocateMarkingTargetUseCase: RelocateMarkingTargetUseCase,
     private val bookContentProcessGateway: BookContentProcessGateway,
     private val aiArtifactGateway: AiArtifactGateway,
     private val aiPromptPresetGateway: AiPromptPresetGateway,
@@ -139,17 +147,15 @@ class ReadBookViewModel(
     private val bookSourceRepository: BookSourceRepository,
     private val bookmarkRepository: BookmarkRepository,
     private val bookRepository: BookRepository,
+    private val readRecordRepository: ReadRecordRepository,
     private val readerSession: ReaderSession,
 ) : BaseViewModel(application) {
-
     // --- MVI State ---
 
     private val _uiState = MutableStateFlow(ReadBookUiState())
     val uiState = _uiState.asStateFlow()
-
     private val _effects = MutableSharedFlow<ReadBookEffect>(extraBufferCapacity = 16)
     val effects = _effects.asSharedFlow()
-
     private val _readAloudProgress = MutableStateFlow(
         activeReadAloudProgress(
             isPlaying = BaseReadAloudService.isPlay(),
@@ -157,12 +163,10 @@ class ReadBookViewModel(
         )
     )
     val readAloudProgress = _readAloudProgress.asStateFlow()
-
     private suspend fun emitEffectWhenSubscribed(effect: ReadBookEffect) {
         _effects.subscriptionCount.first { it > 0 }
         _effects.emit(effect)
     }
-
     /**
      * 书籍信息/目录有两种呈现：`useNewTocSheet` 开着时在阅读页内开 Sheet，
      * 否则按老路子发 Effect 开新页。两个入口的判断完全一致，合在一处，
@@ -180,11 +184,17 @@ class ReadBookViewModel(
             _effects.tryEmit(fallbackEffect(book))
         }
     }
-
     private fun closeReadMenu() {
         _uiState.update { it.copy(menuState = ReadBookMenuState()) }
     }
-
+    /**
+     * 直接打开书籍详情（跳过阅读信息 Sheet，长按标题胶囊时使用）。
+     */
+    private fun openBookInfoDirect() {
+        val book = ReadBook.book ?: return
+        closeReadMenu()
+        _effects.tryEmit(ReadBookEffect.OpenBookInfo(book.name, book.author, book.bookUrl))
+    }
     // --- 正文处理域 ---
 
     private val contentProcessDelegate = ReadContentProcessDelegate(
@@ -199,6 +209,62 @@ class ReadBookViewModel(
     )
 
     val contentProcessState = contentProcessDelegate.uiState
+    // --- 划线/高亮笔记域：一次「选中 → 配置样式/备注 → 保存」的临时会话 ---
+
+    private val markingDelegate = MarkingDelegate(
+        scope = viewModelScope,
+        context = context,
+        highlightRuleRepository = highlightRuleRepository,
+        saveMarkingUseCase = saveMarkingUseCase,
+        host = object : MarkingDelegate.Host {
+            override fun reloadCurrentChapter() {
+                contentProcessDelegate.reloadCurrentChapter()
+            }
+
+            override fun dismissMarkingSheet() {
+                restoreMarkingReturnSheet()
+            }
+
+            override fun showToast(message: String) {
+                _effects.tryEmit(ReadBookEffect.ShowToast(message))
+            }
+        },
+    )
+
+    val markingState = markingDelegate.uiState
+    /**
+     * 划线笔记编辑可能从目录 Sheet 进入：保存/删除/取消后应回到原 sheet（目录），
+     * 而不是被丢回阅读页。从划词菜单新建时无原 sheet，回 null。
+     */
+    private var markingReturnSheet: ReadBookSheet? = null
+
+    private fun restoreMarkingReturnSheet() {
+        val returnSheet = markingReturnSheet
+        markingReturnSheet = null
+        _uiState.update { it.copy(activeSheet = returnSheet) }
+    }
+
+    // --- 跳转校验域：书签/笔记跳转前比对源与章节标题 ---
+
+    private val bookmarkNavigateDelegate = ReadBookmarkNavigateDelegate(
+        scope = viewModelScope,
+        bookRepository = bookRepository,
+        verifyUseCase = verifyBookmarkTargetUseCase,
+        relocateMarkingTargetUseCase = relocateMarkingTargetUseCase,
+        host = object : ReadBookmarkNavigateDelegate.Host {
+            override val pendingTarget: PendingBookmarkTarget?
+                get() = _uiState.value.pendingBookmarkTarget
+
+            override fun jumpToChapter(chapterIndex: Int, chapterPos: Int) {
+                onIntent(ReadBookIntent.DismissSheet)
+                onIntent(ReadBookIntent.OpenChapterResult(chapterIndex, chapterPos))
+            }
+
+            override fun setPendingTarget(pending: PendingBookmarkTarget?) {
+                _uiState.update { it.copy(pendingBookmarkTarget = pending) }
+            }
+        },
+    )
 
     // --- AI 域（摘要 / 净化 / 重写 / 预设）---
 
@@ -246,7 +312,6 @@ class ReadBookViewModel(
     )
 
     val aiState = aiDelegate.uiState
-
     // --- 高亮规则域 ---
 
     private val highlightRuleDelegate = ReadHighlightRuleDelegate(
@@ -331,10 +396,21 @@ class ReadBookViewModel(
             override fun setActiveSheet(sheet: ReadBookSheet?) {
                 _uiState.update { it.copy(menuState = ReadBookMenuState(), activeSheet = sheet) }
             }
+
+            override fun emitEffect(effect: ReadBookEffect) {
+                _effects.tryEmit(effect)
+            }
         },
         bookmarkRepository = bookmarkRepository,
+        bookKey = _uiState.map { it.book?.let { book -> book.name to book.author } },
     )
 
+    private val readRecordAliasDelegate = ReadRecordAliasDelegate(
+        viewModelScope, localPreferencesRepository, readRecordRepository,
+        { _uiState.value.activeDialog != null },
+        { book, time -> _uiState.update { it.copy(activeDialog = ReadBookDialog.ReadRecordAliasConflict(book.name, book.author, time)) } },
+        { _uiState.update { it.copy(activeDialog = null) } },
+    )
     // --- 开书 / 目录 / 换源 / 进度同步域（无自持状态，isInitFinish 仍在 UiState）---
 
     private val loadDelegate: ReadBookLoadDelegate = ReadBookLoadDelegate(
@@ -370,6 +446,12 @@ class ReadBookViewModel(
             override fun openChapter(index: Int, durChapterPos: Int) {
                 this@ReadBookViewModel.openChapter(index, durChapterPos)
             }
+
+            /**
+             * 打开书籍时检查旧版作者为空的阅读记录。
+             * 已有持久化决定时自动处理，否则暂存候选记录并弹出确认框。
+             */
+            override suspend fun checkReadRecordAlias(book: Book) = readRecordAliasDelegate.check(book)
         },
         bookRepository = bookRepository,
         bookSourceRepository = bookSourceRepository,
@@ -408,6 +490,14 @@ class ReadBookViewModel(
         readStyleGateway = readBookStyleConfigRepository,
         appShellSettingsGateway = appShellSettingsGateway,
         themeSettingsGateway = themeSettingsGateway,
+    )
+
+    /** 自定义书签角标（拷贝落盘 + 刷新角标），独立于样式域的小委托。 */
+    private val bookmarkBadgeDelegate = BookmarkBadgeDelegate(
+        scope = viewModelScope,
+        context = context,
+        readSettingsRepository = readSettingsRepository,
+        emitEffect = _effects::tryEmit,
     )
 
     /** 日夜切换冷却期内不再弹提醒；光线传感器回调在 RouteScreen 里先问这个再发 intent。 */
@@ -556,6 +646,7 @@ class ReadBookViewModel(
         collectEventBus()
         collectReaderSession()
         collectReadStyle()
+        bookmarkDelegate.start()
         replaceRuleDelegate.start()
         execute { readAloudDelegate.syncConfiguredTtsVoices() }
     }
@@ -801,6 +892,8 @@ class ReadBookViewModel(
             is ReadBookIntent.OpenChapterSummary -> aiDelegate.openChapterSummary()
             is ReadBookIntent.OpenAiCurrentChapterRewrite -> aiDelegate.openAiCurrentChapterRewrite()
             is ReadBookIntent.RetryChapterSummary -> aiDelegate.retryChapterSummary()
+            is ReadBookIntent.SetChapterSummaryReasoningLevel ->
+                aiDelegate.setChapterSummaryReasoningLevel(intent.level)
             is ReadBookIntent.LoadContentProcesses -> contentProcessDelegate.load()
             is ReadBookIntent.ToggleContentProcess ->
                 contentProcessDelegate.toggle(intent.id, intent.enabled)
@@ -815,6 +908,8 @@ class ReadBookViewModel(
                 aiDelegate.selectAiRewriteHistory(intent.artifactId)
             is ReadBookIntent.GenerateAiTextRewrite -> aiDelegate.generateSelectedAiTextRewrite()
             is ReadBookIntent.RetryAiTextRewrite -> aiDelegate.retryAiTextRewrite()
+            is ReadBookIntent.SetAiTextRewriteReasoningLevel ->
+                aiDelegate.setAiTextRewriteReasoningLevel(intent.level)
             is ReadBookIntent.ConfirmAiTextRewrite -> aiDelegate.confirmAiTextRewrite()
             is ReadBookIntent.OpenAiRewritePresetConfig -> aiDelegate.openAiRewritePresetConfig()
             is ReadBookIntent.CloseAiRewritePresetConfig -> aiDelegate.closeAiRewritePresetConfig()
@@ -852,6 +947,7 @@ class ReadBookViewModel(
             is ReadBookIntent.SureNewProgress -> ReadBook.setProgress(intent.progress)
             is ReadBookIntent.SureSyncProgress -> ReadBook.setProgress(intent.progress)
             is ReadBookIntent.AddBookmark -> bookmarkDelegate.addForCurrentPage()
+            is ReadBookIntent.ToggleBookmark -> bookmarkDelegate.toggleForCurrentPage()
             is ReadBookIntent.SaveBookmark -> bookmarkDelegate.save(intent.bookmark)
             is ReadBookIntent.DeleteBookmark -> bookmarkDelegate.delete(intent.bookmark)
             is ReadBookIntent.CancelSelect -> _effects.tryEmit(ReadBookEffect.CancelSelect)
@@ -902,6 +998,7 @@ class ReadBookViewModel(
                 aiDelegate.onSheetDismissed(_uiState.value.activeSheet)
                 when (_uiState.value.activeSheet) {
                     is ReadBookSheet.HighlightRuleConfig -> highlightRuleDelegate.onSheetDismissed()
+                    is ReadBookSheet.Marking -> markingDelegate.onSheetDismissed()
                     is ReadBookSheet.ContentEdit -> contentEditDelegate.onSheetDismissed()
                     is ReadBookSheet.ContentProcesses,
                     is ReadBookSheet.TextProcessing -> contentProcessDelegate.onSheetDismissed()
@@ -913,6 +1010,9 @@ class ReadBookViewModel(
                 it.copy(activeSheet = intent.sheet)
             }
             is ReadBookIntent.ShowDialog -> _uiState.update { it.copy(activeDialog = intent.dialog) }
+            is ReadBookIntent.ResolveReadRecordAlias ->
+                readRecordAliasDelegate.resolve(intent.merge, intent.rememberChoice)
+            is ReadBookIntent.ClearReadRecordAliasDecisions -> readRecordAliasDelegate.clearDecisions()
             is ReadBookIntent.DismissDialog -> _uiState.update { it.copy(activeDialog = null) }
             is ReadBookIntent.ShowLogin -> {
                 ReadBook.bookSource?.bookSourceUrl?.let { sourceUrl ->
@@ -933,6 +1033,7 @@ class ReadBookViewModel(
             is ReadBookIntent.OpenBookInfo -> openBookNavigation(ReaderBookSheetTab.Information) {
                 ReadBookEffect.OpenBookInfo(it.name, it.author, it.bookUrl)
             }
+            is ReadBookIntent.OpenBookInfoDirect -> openBookInfoDirect()
 
             is ReadBookIntent.OpenChapterList -> openBookNavigation(ReaderBookSheetTab.Toc) {
                 ReadBookEffect.OpenChapterList(it.bookUrl)
@@ -1225,6 +1326,8 @@ class ReadBookViewModel(
             is ReadBookIntent.SetReadAloudByPage -> readAloudDelegate.setByPage(intent.value)
             is ReadBookIntent.SetReadAloudSystemMediaCompat ->
                 readAloudDelegate.setSystemMediaCompat(intent.value)
+            is ReadBookIntent.SetReadAloudAndroidMediaControl ->
+                readAloudDelegate.setAndroidMediaControl(intent.value)
             is ReadBookIntent.SetReadAloudStreamAudio ->
                 readAloudDelegate.setStreamAudio(intent.value)
             is ReadBookIntent.ReadAloudPrevParagraph -> readAloudDelegate.prevParagraph()
@@ -1234,6 +1337,8 @@ class ReadBookViewModel(
             is ReadBookIntent.ReadAloudPrevChapter -> readAloudDelegate.prevChapter()
             is ReadBookIntent.ReadAloudNextChapter -> readAloudDelegate.nextChapter()
             is ReadBookIntent.SetReadAloudTtsTimer -> readAloudDelegate.setTtsTimer(intent.value)
+            is ReadBookIntent.SetFinishCurrentChapterAfterTimer ->
+                readAloudDelegate.setFinishCurrentChapterAfterTimer(intent.value)
             is ReadBookIntent.SetReadAloudTtsFollowSys ->
                 readAloudDelegate.setTtsFollowSys(intent.value)
             is ReadBookIntent.SetReadAloudTtsSpeechRate ->
@@ -1293,6 +1398,11 @@ class ReadBookViewModel(
                 styleDelegate.applyBackgroundImage(intent.uri)
             is ReadBookIntent.ReadStyleImageSelectedForMode ->
                 styleDelegate.applyBackgroundImageForMode(intent.uri, intent.isNight)
+            is ReadBookIntent.BookmarkBadgeImageSelected ->
+                bookmarkBadgeDelegate.applyBadgeImage(intent.uri)
+
+            is ReadBookIntent.ClearBookmarkBadgeImage ->
+                bookmarkBadgeDelegate.clearBadgeImage()
             is ReadBookIntent.ReadStyleConfigImportSelected -> styleDelegate.importConfig(intent.uri)
             is ReadBookIntent.ReadStyleConfigExportSelected -> styleDelegate.exportConfig(intent.uri)
             is ReadBookIntent.SaveReadStyleConfig -> styleDelegate.saveCurrentStyle()
@@ -1313,6 +1423,45 @@ class ReadBookViewModel(
             }
 
             is ReadBookIntent.TextActionBookmark -> bookmarkDelegate.openEditor(intent.bookmark)
+
+            is ReadBookIntent.OpenMarking -> {
+                // 从划词菜单新建：无原 sheet 可回
+                markingReturnSheet = null
+                markingDelegate.open(intent.selection)
+                _uiState.update { it.copy(activeSheet = ReadBookSheet.Marking) }
+            }
+
+            is ReadBookIntent.EditMarking -> {
+                // 从目录 Sheet 进入：记住原 sheet，保存/删除/取消后返回
+                markingReturnSheet = _uiState.value.activeSheet
+                markingDelegate.openForEdit(intent.id)
+                _uiState.update { it.copy(activeSheet = ReadBookSheet.Marking) }
+            }
+
+            is ReadBookIntent.DismissMarking -> {
+                markingDelegate.onSheetDismissed()
+                restoreMarkingReturnSheet()
+            }
+
+            is ReadBookIntent.SaveMarking -> {
+                markingDelegate.save(intent.style, intent.note)
+            }
+
+            is ReadBookIntent.DeleteMarking -> {
+                markingDelegate.deleteCurrent()
+            }
+
+            is ReadBookIntent.NavigateToBookmark ->
+                bookmarkNavigateDelegate.navigateToBookmark(intent.bookmark)
+
+            is ReadBookIntent.NavigateToMarking ->
+                bookmarkNavigateDelegate.navigateToMarking(intent.marking)
+
+            is ReadBookIntent.ConfirmBookmarkTargetJump ->
+                bookmarkNavigateDelegate.confirmJump()
+
+            is ReadBookIntent.CancelBookmarkTargetJump ->
+                bookmarkNavigateDelegate.cancelJump()
 
             is ReadBookIntent.TextActionReplace -> {
                 _effects.tryEmit(
@@ -1344,6 +1493,8 @@ class ReadBookViewModel(
             }
 
             is ReadBookIntent.RetryAiTextClean -> aiDelegate.retryAiTextClean()
+            is ReadBookIntent.SetAiTextCleanReasoningLevel ->
+                aiDelegate.setAiTextCleanReasoningLevel(intent.level)
             is ReadBookIntent.ConfirmAiTextClean -> aiDelegate.confirmAiTextClean()
 
             is ReadBookIntent.OpenAiTextRewrite -> {
@@ -1890,6 +2041,7 @@ class ReadBookViewModel(
                 readMenuTopBarBlurMode = ReadBookConfig.readMenuTopBarBlurMode,
                 readMenuBottomBarBlurMode = ReadBookConfig.readMenuBottomBarBlurMode,
                 readMenuTopBarLiquidGlassButtons = ReadBookConfig.readMenuTopBarLiquidGlassButtons,
+                readMenuTopBarMergeButtons = ReadBookConfig.readMenuTopBarMergeButtons,
                 readMenuTopBarTitleCapsule = ReadBookConfig.readMenuTopBarTitleCapsule,
                 readMenuBottomBarLiquidGlassButtons = ReadBookConfig.readMenuBottomBarLiquidGlassButtons,
                 readMenuFloatingIconLiquidGlass = ReadBookConfig.readMenuFloatingIconLiquidGlass,
@@ -2303,6 +2455,13 @@ class ReadBookViewModel(
         }
     }
 
+    fun refreshSeekState() {
+        _uiState.update { it.copy(
+            seekProgress = calculateSeekProgress(),
+            seekMax = calculateSeekMax(),
+        ) }
+    }
+
     private fun openChapterUrl() {
         if (ReadBook.isLocalBook) return
         viewModelScope.launch {
@@ -2311,9 +2470,7 @@ class ReadBookViewModel(
                 ?: return@launch
             val url = chapter.getAbsoluteURL()
             if (url.isBlank()) return@launch
-            val useBrowser = localPreferencesRepository
-                .getPreference(LocalPreferencesKeys.READ_URL_IN_BROWSER, false)
-                .first()
+            val useBrowser = readSettingsRepository.currentSettings.readUrlInBrowser
             if (useBrowser) {
                 context.openUrl(url.substringBefore(",{"))
             } else {
@@ -2353,13 +2510,9 @@ class ReadBookViewModel(
 
     private fun toggleReadUrlInBrowser() {
         viewModelScope.launch {
-            val current = localPreferencesRepository
-                .getPreference(LocalPreferencesKeys.READ_URL_IN_BROWSER, false)
-                .first()
+            val current = readSettingsRepository.currentSettings.readUrlInBrowser
             val newValue = !current
-            localPreferencesRepository.updatePreference(
-                LocalPreferencesKeys.READ_URL_IN_BROWSER, newValue
-            )
+            readSettingsRepository.update { it.copy(readUrlInBrowser = newValue) }
             _effects.tryEmit(
                 ReadBookEffect.ShowToast(
                     context.getString(

@@ -40,6 +40,9 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
 
     override val useSpeechPlaybackQueue: Boolean = true
 
+    protected override val currentSpeechRate: Float
+        get() = if (ReadConfig.ttsFollowSys) 1f else (speechRateSetting + 5) / 10f
+
     private val readAloudSettingsGateway: ReadAloudSettingsGateway by inject()
     @Volatile
     private var speechRateSetting: Int = 5
@@ -229,7 +232,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                 if (!isAddedText) {
                     playStop()
                     delay(1000)
-                    nextChapter()
+                    completeCurrentChapter()
                 }
             }
         }.onError {
@@ -304,6 +307,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
         } else {
             val speechRate = (speechRateSetting + 5) / 10f
             textToSpeech?.setSpeechRate(speechRate)
+            upMediaMetadata()
             if (reset && !pause) {
                 play()
             }
@@ -343,7 +347,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             utteranceStartReadAloudNumber = readAloudNumber
             textChapter?.let {
                 if (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex)) {
-                    nextParagraph()
+                    nextParagraph(naturalCompletion = true)
                 }
                 if (pageIndex + 1 < it.pageSize
                     && readAloudNumber + 1 > it.getReadLength(pageIndex + 1)
@@ -359,7 +363,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
         override fun onDone(s: String) {
             if (!isCurrentUtterance(s)) return
             LogUtils.d(TAG, "onDone utteranceId:$s")
-            nextParagraph()
+            nextParagraph(naturalCompletion = true)
             if (!pause && (hasSpeechPlaybackQueue || ReadConfig.ttsParagraphInterval > 0)) {
                 needParagraphInterval = ReadConfig.ttsParagraphInterval > 0
                 play()
@@ -386,18 +390,22 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                 TAG,
                 "onError nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId errorCode:$errorCode"
             )
-            nextParagraph()
+            nextParagraph(naturalCompletion = true)
             if (!pause && (hasSpeechPlaybackQueue || ReadConfig.ttsParagraphInterval > 0)) {
                 needParagraphInterval = ReadConfig.ttsParagraphInterval > 0
                 play()
             }
         }
 
-        private fun nextParagraph() {
+        private fun nextParagraph(naturalCompletion: Boolean = false) {
             if (hasSpeechPlaybackQueue) {
                 val current = playbackCursor
                     ?: ReadAloudPlaybackCursor(nowSpeak, paragraphStartPos)
-                playbackQueue.next(current)?.let(::moveToPlaybackCursor) ?: nextChapter()
+                playbackQueue.next(current)?.let(::moveToPlaybackCursor) ?: if (naturalCompletion) {
+                    completeCurrentChapter()
+                } else {
+                    nextChapter()
+                }
                 return
             }
             //跳过全标点段落
@@ -410,7 +418,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                 paragraphStartPos = 0
                 nowSpeak++
                 if (nowSpeak >= contentList.size) {
-                    nextChapter()
+                    if (naturalCompletion) completeCurrentChapter() else nextChapter()
                     return
                 }
             } while (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
@@ -420,7 +428,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
         override fun onError(s: String) {
             if (!isCurrentUtterance(s)) return
             LogUtils.d(TAG, "onError nowSpeak:$nowSpeak pageIndex:$pageIndex s:$s")
-            nextParagraph()
+            nextParagraph(naturalCompletion = true)
             if (!pause && (hasSpeechPlaybackQueue || ReadConfig.ttsParagraphInterval > 0)) {
                 needParagraphInterval = ReadConfig.ttsParagraphInterval > 0
                 play()
