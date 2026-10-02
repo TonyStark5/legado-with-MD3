@@ -3,6 +3,7 @@ package io.legado.app.ui.main
 import android.app.Activity
 import android.content.Intent
 import androidx.navigation3.runtime.NavKey
+import io.legado.app.feature.reader.platform.ReaderPerfTrace
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.rss.article.MainRouteRssSort
 import io.legado.app.ui.rss.read.MainRouteRssRead
@@ -22,7 +23,37 @@ object MainNavigator {
     }
     private var backNavigationResetJob: Job? = null
 
-    fun navigateToRoute(backStack: MutableList<NavKey>, route: NavKey) {
+    fun navigateToRoute(
+        backStack: MutableList<NavKey>,
+        route: NavKey,
+        resetToHome: Boolean = false,
+    ) {
+        navigateToRoute(backStack, route, null, resetToHome)
+    }
+
+    /**
+     * [tracker] 非空时在同一调用里记录栈顶路由：Activity 级叠层（全局朗读胶囊）据此
+     * 在导航发生的那一刻就重算显隐，而不是等 back stack 快照回灌后才被动刷新。
+     */
+    fun navigateToRoute(
+        backStack: MutableList<NavKey>,
+        route: NavKey,
+        tracker: MainNavRouteTracker?,
+        resetToHome: Boolean = false,
+    ) {
+        navigateToRouteInternal(backStack, route, tracker, resetToHome)
+    }
+
+    private fun navigateToRouteInternal(
+        backStack: MutableList<NavKey>,
+        route: NavKey,
+        tracker: MainNavRouteTracker?,
+        resetToHome: Boolean,
+    ) {
+        if (resetToHome) {
+            backStack.clear()
+            backStack.add(MainRouteHome)
+        }
         val currentRoute = backStack.lastOrNull()
         if (currentRoute == route) return
 
@@ -37,6 +68,7 @@ object MainNavigator {
             }
         }
 
+        if (route is MainRouteReadBook) ReaderPerfTrace.marker("open.request")
         // 导航动画和阅读页组合要花几百毫秒, 这段时间足够把正文读出来并排版好
         if (route is MainRouteReadBook && !route.chapterChanged) {
             route.bookUrl?.let { ReadBook.prefetchForOpen(it) }
@@ -55,6 +87,8 @@ object MainNavigator {
             is MainRouteRssSourceEdit,
             is MainRouteBookSourceDebug,
             is MainRouteRssSourceDebug -> backStack.add(route)
+
+            MainRouteReadAloudPlayer -> backStack.add(route)
 
             MainRouteHome -> {
                 backStack.clear()
@@ -96,7 +130,8 @@ object MainNavigator {
             MainRouteSettingsCustomTheme,
             MainRouteSettingsThemeManage,
             MainRouteSettingsDownloadCache,
-            MainRouteSettingsTranslation -> {
+            MainRouteSettingsTranslation,
+            MainRouteSettingsPrivate -> {
                 backStack.clear()
                 backStack.add(MainRouteHome)
                 backStack.add(MainRouteSettings)
@@ -150,6 +185,7 @@ object MainNavigator {
                     currentRoute == MainRouteHome ||
                     currentRoute is MainRouteBookInfo ||
                     currentRoute is MainRouteExploreShow ||
+                    currentRoute is MainRouteBookSourceManage ||
                     currentRoute is MainRouteSearch
                 ) {
                     backStack.add(route)
@@ -166,6 +202,7 @@ object MainNavigator {
                     currentRoute is MainRouteSearch ||
                     currentRoute is MainRouteExploreShow ||
                     currentRoute is MainRouteBookInfo ||
+                    currentRoute is MainRouteCache ||
                     currentRoute is MainRouteReadManga
                 ) {
                     backStack.add(route)
@@ -294,24 +331,38 @@ object MainNavigator {
                 }
             }
         }
+        // 同步栈快照：Activity 级叠层（全局朗读胶囊）据此立刻重算显隐，不必等 back stack 回灌
+        tracker?.onBackStackChanged(backStack)
     }
 
-    fun navigateBack(activity: Activity, backStack: MutableList<NavKey>) {
-        if (backNavigationInProgress) {
-            return
+    fun navigateBack(
+        activity: Activity,
+        backStack: MutableList<NavKey>,
+        tracker: MainNavRouteTracker? = null,
+        fromRoute: NavKey? = null,
+    ): Boolean {
+        if (fromRoute != null) {
+            if (backStack.lastOrNull() != fromRoute) {
+                return false
+            }
+        } else if (backNavigationInProgress) {
+            return false
         }
         if (backStack.size > 1) {
             backNavigationInProgress = true
             backStack.removeLastOrNull()
+            tracker?.onBackStackChanged(backStack)
+            return true
         } else {
             activity.finish()
+            return true
         }
     }
 
     fun onBackStackChanged() {
         backNavigationResetJob?.cancel()
         backNavigationResetJob = navigationScope.launch {
-            delay(500)
+            delay(100)
             backNavigationInProgress = false
         }
     }
@@ -419,6 +470,7 @@ object MainNavigator {
             MainRouteConst.ROUTE_SETTINGS_AI -> MainRouteSettingsAi
             MainRouteConst.ROUTE_AI_CHAT -> MainRouteAiChat
             MainRouteConst.ROUTE_SETTINGS_CUSTOM_THEME -> MainRouteSettingsCustomTheme
+            MainRouteConst.ROUTE_SETTINGS_PRIVATE -> MainRouteSettingsPrivate
             MainRouteConst.ROUTE_SETTINGS_LAB_CONFIG -> MainRouteSettingsLabConfig
             MainRouteConst.ROUTE_SETTINGS_DOWNLOAD_CACHE -> MainRouteSettingsDownloadCache
             MainRouteConst.ROUTE_SETTINGS_TRANSLATION -> MainRouteSettingsTranslation
@@ -448,6 +500,7 @@ object MainNavigator {
                     MainIntent.EXTRA_CHAPTER_CHANGED,
                     false,
                 ) == true,
+                openRequestId = System.nanoTime(),
             )
             MainRouteConst.ROUTE_AUDIO_PLAY -> MainRouteAudioPlay(
                 bookUrl = intent?.getStringExtra(MainIntent.EXTRA_BOOK_URL),

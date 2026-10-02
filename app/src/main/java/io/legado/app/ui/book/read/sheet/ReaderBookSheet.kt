@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -54,8 +55,8 @@ import androidx.compose.material.icons.outlined.DownloadForOffline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -109,6 +110,7 @@ import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.progressIndicator.AppContainedLoadingIndicator
 import io.legado.app.ui.widget.components.tabRow.CardTabRow
 import io.legado.app.ui.widget.components.text.AppText
+import io.legado.app.utils.HtmlFormatter
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -132,6 +134,7 @@ fun ReaderBookSheetRoute(
     onChapterClick: (chapterIndex: Int, chapterPos: Int) -> Unit,
     currentChapterIndex: Int? = null,
     onOpenFullBookInfo: () -> Unit,
+    onOpenFullToc: (() -> Unit)? = null,
     /** 书签页跳转：携带完整书签供跳转前校验。 */
     onBookmarkNavigate: (Bookmark) -> Unit = { _ -> },
     /** 笔记页跳转：携带完整展示项供跳转前校验。 */
@@ -203,15 +206,23 @@ fun ReaderBookSheetRoute(
         onOpenFullScreen = { tab ->
             when (tab) {
                 ReaderBookSheetTab.Information -> onOpenFullBookInfo()
-                ReaderBookSheetTab.Toc,
+                ReaderBookSheetTab.Toc -> {
+                    if (onOpenFullToc != null) {
+                        onOpenFullToc()
+                    } else {
+                        fullTocLauncher.launch(
+                            Intent(context, TocActivity::class.java)
+                                .putExtra("bookUrl", bookUrl)
+                                .putExtra("initialPage", 0)
+                        )
+                    }
+                }
+
                 ReaderBookSheetTab.Bookmarks -> {
                     fullTocLauncher.launch(
                         Intent(context, TocActivity::class.java)
                             .putExtra("bookUrl", bookUrl)
-                            .putExtra(
-                                "initialPage",
-                                if (tab == ReaderBookSheetTab.Bookmarks) 1 else 0,
-                            )
+                            .putExtra("initialPage", 1)
                     )
                 }
 
@@ -411,6 +422,9 @@ internal fun ReaderBookHeader(
             author = book?.author,
             path = book?.getDisplayCover(),
             sourceOrigin = book?.origin,
+            // 阅读抽屉也是书维度场景，本地优先不跑书源脚本
+            bookUrl = book?.bookUrl,
+            preferCache = true,
             modifier = Modifier.width(40.dp),
         )
         Column(
@@ -566,6 +580,18 @@ private fun ReaderBookSourceDropdown(
 private fun ReaderBookInformation(
     book: Book?,
 ) {
+    // 简介直接以 book.intro 原样塑进 Text 会有问题：部分书源的简介带
+    // <usehtml>/<useweb>/<md> 前缀、<button>@onclick:JS</button> 与 HTML 标签，
+    // 展示出来就是一堆调用源码；formatDisplayText 还会给每行补段首缩进
+    // （两个全角空格），与详情页观感不一致。
+    // 这里改用与详情页同一套解析规则的 formatReadableText 清洗——去前缀、
+    // 丢弃 @onclick:JS 片段（只保留按钮文字，如“💬 本书讨论”）、不补缩进。
+    // 注意：LazyColumn 的 content lambda 不是 composable 作用域，remember 必须
+    // 提在本函数体开头调用。
+    val rawIntro = book?.getDisplayIntro()?.takeIf { it.isNotBlank() }
+    val formattedIntro = remember(rawIntro) {
+        rawIntro?.let { HtmlFormatter.formatReadableText(it) }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp),
@@ -581,8 +607,8 @@ private fun ReaderBookInformation(
         book?.remark?.takeIf { it.isNotBlank() }?.let { remark ->
             item { InformationRow(stringResource(R.string.book_remark), remark) }
         }
-        book?.getDisplayIntro()?.takeIf { it.isNotBlank() }?.let { intro ->
-            item { InformationRow(stringResource(R.string.book_intro), intro) }
+        if (!formattedIntro.isNullOrBlank()) {
+            item { InformationRow(stringResource(R.string.book_intro), formattedIntro) }
         }
     }
 }
@@ -777,6 +803,12 @@ private fun ReaderBookTocPage(
                 onQueryChange = { onIntent(TocIntent.SetSearchQuery(it)) },
                 placeholder = stringResource(R.string.search_chapters),
                 modifier = Modifier.weight(1f),
+            )
+            CompactToolIconBox(
+                selected = action.useReplace,
+                icon = Icons.Default.FindReplace,
+                contentDescription = stringResource(R.string.use_replace_rule),
+                onClick = { onIntent(TocIntent.ToggleUseReplace) },
             )
             CompactToolIconBox(
                 selected = action.showWordCount,

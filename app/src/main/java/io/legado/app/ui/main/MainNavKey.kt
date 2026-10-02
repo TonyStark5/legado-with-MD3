@@ -10,6 +10,10 @@ sealed interface MainRoute : NavKey
 @Serializable
 data object MainRouteHome : MainRoute
 
+/** 只兼容旧版本保存的导航栈，新入口使用 Activity 播放浮层。 */
+@Serializable
+data object MainRouteReadAloudPlayer : MainRoute
+
 @Serializable
 data class MainRouteSourceLogin(
     val type: SourceLoginType,
@@ -100,6 +104,9 @@ data object MainRouteSettingsCustomTheme : MainRoute
 data object MainRouteSettingsThemeManage : MainRoute
 
 @Serializable
+data object MainRouteSettingsPrivate : MainRoute
+
+@Serializable
 data object MainRouteSettingsLabConfig : MainRoute
 
 @Serializable
@@ -132,6 +139,7 @@ data class MainRouteReadBook(
     val readAloud: Boolean = false,
     val inBookshelf: Boolean = true,
     val chapterChanged: Boolean = false,
+    val sharedCoverKey: String? = null,
 ) : MainRoute
 
 @Serializable
@@ -139,12 +147,16 @@ data class MainRouteReadManga(
     val bookUrl: String? = null,
     val inBookshelf: Boolean = true,
     val chapterChanged: Boolean = false,
+    /** Distinguishes repeated open requests for the same book after an external TOC selection. */
+    val openRequestId: Long = 0L,
+    val sharedCoverKey: String? = null,
 ) : MainRoute
 
 @Serializable
 data class MainRouteAudioPlay(
     val bookUrl: String? = null,
     val inBookshelf: Boolean = true,
+    val sharedCoverKey: String? = null,
 ) : MainRoute
 
 @Serializable
@@ -261,6 +273,7 @@ object MainRouteConst {
     const val ROUTE_SETTINGS_AI_PROMPT = "settings/ai/prompt"
     const val ROUTE_AI_CHAT = "ai/chat"
     const val ROUTE_SETTINGS_CUSTOM_THEME = "settings/custom_theme"
+    const val ROUTE_SETTINGS_PRIVATE = "settings/private"
     const val ROUTE_SETTINGS_LAB_CONFIG = "settings/lab_config"
     const val ROUTE_SETTINGS_DOWNLOAD_CACHE = "settings/download_cache"
     const val ROUTE_SETTINGS_TRANSLATION = "settings/translation"

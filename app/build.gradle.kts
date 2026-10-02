@@ -255,12 +255,15 @@ dependencies {
     implementation(libs.markwon.ext.tables)
     implementation(libs.markwon.html)
     implementation(libs.quick.chinese.transfer.core)
+    // 书源 JS 通过 Packages.cn.hutool.* 调用，保留在 classpath（应用代码不依赖，见 AGENTS.md）
+    implementation(libs.hutool.crypto)
     //noinspection GradleDependency
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.perf)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.palette)
+    implementation(libs.androidx.biometric)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.startup.runtime)
     implementation(platform(libs.androidx.compose.bom))
@@ -286,7 +289,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.viewbinding)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
-    // 直接声明并抬高 navigationevent 版本，覆盖 navigation3 传递依赖的 1.1.2（预测式返回崩溃）
+    // 显式保持 navigationevent 1.2 系列，保留已分离输入的预测式返回崩溃修复。
     implementation(libs.androidx.navigationevent)
     implementation(libs.androidx.navigationevent.compose)
     implementation(libs.androidx.compose.adaptive)

@@ -2,7 +2,8 @@ package io.legado.app.ui.book.audio
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,12 +19,13 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -36,7 +38,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Repeat
@@ -49,12 +50,13 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.WbTwilight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,7 +86,9 @@ import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.button.series.MediumPlainButton
 import io.legado.app.ui.widget.components.button.series.SmallAnimatedButton
 import io.legado.app.ui.widget.components.icon.AppIcons
-import io.legado.app.ui.widget.components.image.cover.BookCoverImage
+import io.legado.app.core.ui.player.PlayerMorphCover
+import io.legado.app.core.ui.player.PlayerMorphAppearance
+import io.legado.app.core.ui.player.TrackPlayerMorphCoverPage
 import io.legado.app.ui.widget.components.log.AppLogSheet
 import io.legado.app.ui.widget.components.menuItem.MenuItemIcon
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
@@ -92,7 +96,6 @@ import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.modalBottomSheet.OptionCard
 import io.legado.app.ui.widget.components.modalBottomSheet.OptionSheet
-import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.player.AnimatedPlayPauseButton
 import io.legado.app.ui.widget.components.player.PlayerAdjustmentSlider
 import io.legado.app.ui.widget.components.player.PlayerBackground
@@ -100,9 +103,10 @@ import io.legado.app.ui.widget.components.player.PlayerProgressSlider
 import io.legado.app.ui.widget.components.player.PlayerTocPage
 import io.legado.app.ui.widget.components.player.playerBgModeLabel
 import io.legado.app.ui.widget.components.text.AppText
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalHazeMaterialsApi::class)
@@ -111,13 +115,13 @@ fun AudioPlayScreenContent(
     state: AudioPlayUiState,
     onIntent: (AudioPlayIntent) -> Unit,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val verticalPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
-    val verticalPagerNestedScrollConnection = rememberPagerFlingPassThroughConnection(
-        state = verticalPagerState,
-        orientation = Orientation.Vertical,
+    val horizontalPagerState = rememberPagerState(
+        initialPage = 1,
+        pageCount = { if (state.lyricLines.isEmpty()) 2 else 3 },
     )
-    val coroutineScope = rememberCoroutineScope()
+    TrackPlayerMorphCoverPage(horizontalPagerState)
     var menuExpanded by remember { mutableStateOf(false) }
     val pagerHazeState = remember { HazeState() }
     val hazeEnabled =
@@ -132,9 +136,9 @@ fun AudioPlayScreenContent(
         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 216.dp,
     )
     AppScaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         alwaysDrawBehindBars = true,
-        disableHazeSource = true,
+        disableContentSampling = true,
         contentWindowInsets = WindowInsets(0),
         topBar = {
             val hazeModifier = if (hazeEnabled) {
@@ -158,7 +162,7 @@ fun AudioPlayScreenContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -372,37 +376,6 @@ fun AudioPlayScreenContent(
                     SmallAnimatedButton(
                         containerColor = Color.Transparent,
                         checked = false,
-                        icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-                        iconChecked = Icons.Default.KeyboardArrowUp,
-                        text = stringResource(
-                            if (verticalPagerState.currentPage == 0) {
-                                R.string.chapter_list
-                            } else {
-                                R.string.back
-                            }
-                        ),
-                        contentDescription = stringResource(
-                            if (verticalPagerState.currentPage == 0) {
-                                R.string.chapter_list
-                            } else {
-                                R.string.back
-                            }
-                        ),
-                        onCheckedChange = {
-                            coroutineScope.launch {
-                                verticalPagerState.animateScrollToPage(
-                                    page = if (verticalPagerState.currentPage == 0) 1 else 0,
-                                    animationSpec = tween(
-                                        durationMillis = 520,
-                                        easing = FastOutSlowInEasing,
-                                    ),
-                                )
-                            }
-                        },
-                    )
-                    SmallAnimatedButton(
-                        containerColor = Color.Transparent,
-                        checked = false,
                         icon = Icons.Default.WbTwilight,
                         text = playerBgModeLabel(state.bgMode),
                         contentDescription = playerBgModeLabel(state.bgMode),
@@ -457,21 +430,25 @@ fun AudioPlayScreenContent(
                     Modifier
                 },
             )
-            VerticalPager(
-                state = verticalPagerState,
+            HorizontalPager(
+                state = horizontalPagerState,
                 modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                pageNestedScrollConnection = verticalPagerNestedScrollConnection,
+                verticalAlignment = Alignment.CenterVertically,
             ) { page ->
-                if (page == 0) {
-                    AudioCoverPage(state, pageContentPadding)
-                } else {
-                    PlayerTocPage(
+                when (page) {
+                    0 -> PlayerTocPage(
                         chapters = state.chapters,
                         currentIndex = state.chapterIndex,
                         isPaused = !state.isPlaying,
                         onSelect = { onIntent(AudioPlayIntent.SelectChapter(it)) },
                         contentPadding = pageContentPadding,
+                    )
+
+                    1 -> AudioCoverPage(state, pageContentPadding)
+                    else -> AudioLyricPage(
+                        state = state,
+                        contentPadding = pageContentPadding,
+                        onIntent = onIntent,
                     )
                 }
             }
@@ -516,6 +493,77 @@ fun AudioPlayScreenContent(
 private const val AUDIO_GAIN_MIN = -6000
 private const val AUDIO_GAIN_MAX = 6000
 private const val CREDITS_MAX_SECONDS = 180
+
+@Composable
+private fun AudioLyricPage(
+    state: AudioPlayUiState,
+    contentPadding: PaddingValues,
+    onIntent: (AudioPlayIntent) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val activeLine = state.lyricLines.indexOfLast { it.timestampMs <= state.position }
+
+    LaunchedEffect(state.lyricLines, activeLine) {
+        if (activeLine !in state.lyricLines.indices) return@LaunchedEffect
+
+        snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
+        val layoutInfo = listState.layoutInfo
+        val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+        val targetDistance = viewportHeight * 0.32f
+        val targetOffset = layoutInfo.viewportStartOffset + targetDistance
+        val visibleItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeLine }
+        val scrollDistance = if (visibleItem != null) {
+            visibleItem.offset - targetOffset
+        } else {
+            val approachDistance = (viewportHeight * 0.08f).coerceAtLeast(1f)
+            listState.scrollToItem(
+                index = activeLine,
+                scrollOffset = -(targetDistance + approachDistance).roundToInt(),
+            )
+            approachDistance
+        }
+        if (abs(scrollDistance) > 1f) {
+            listState.animateScrollBy(
+                value = scrollDistance,
+                animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing),
+            )
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(
+            top = contentPadding.calculateTopPadding(),
+            bottom = contentPadding.calculateBottomPadding(),
+        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(
+            items = state.lyricLines,
+            key = { index, line -> "${line.timestampMs}:$index" },
+            contentType = { _, _ -> "audio_lyric_line" },
+        ) { index, line ->
+            val active = index == activeLine
+            AppText(
+                text = line.text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onIntent(AudioPlayIntent.SeekTo(line.timestampMs)) }
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                style = LegadoTheme.typography.titleLargeEmphasized,
+                color = if (active) {
+                    LegadoTheme.colorScheme.onSurface
+                } else {
+                    LegadoTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                },
+            )
+        }
+    }
+}
 
 @Composable
 private fun AudioSkipCreditsSheet(
@@ -733,10 +781,6 @@ private fun AudioCoverPage(
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val coverShape = when (state.coverRatio) {
-            CoverRatio.Circle -> CircleShape
-            else -> RoundedCornerShape(8.dp)
-        }
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.TopCenter,
@@ -754,14 +798,12 @@ private fun AudioCoverPage(
                 else ->
                     Modifier.fillMaxSize(0.64f)
             }
-            BookCoverImage(
-                name = state.bookName,
-                author = state.author,
-                path = state.coverPath,
-                sourceOrigin = state.sourceOrigin,
-                modifier = Modifier
-                    .then(coverModifier)
-                    .clip(coverShape)
+            PlayerMorphCover(
+                appearance = PlayerMorphAppearance(
+                    state.bookName, state.author, state.coverPath, state.sourceOrigin, state.bgMode,
+                ),
+                modifier = coverModifier,
+                circular = state.coverRatio == CoverRatio.Circle,
             )
         }
         Column(

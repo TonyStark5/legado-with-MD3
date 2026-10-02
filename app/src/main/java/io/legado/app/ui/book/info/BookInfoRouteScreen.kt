@@ -3,6 +3,7 @@ package io.legado.app.ui.book.info
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -11,27 +12,47 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.script.rhino.runScriptWithContext
 import io.legado.app.R
+import io.legado.app.constant.AppLog
+import io.legado.app.core.ui.morph.BookMorphHost
 import io.legado.app.data.entities.BookGroup
 import io.legado.app.help.book.isAudio
 import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isLocal
+import io.legado.app.help.security.BiometricUnlockLauncher
 import io.legado.app.model.SourceCallBack
 import io.legado.app.ui.book.info.edit.BookInfoEditActivity
 import io.legado.app.ui.book.toc.TocActivityResult
-import io.legado.app.ui.file.HandleFileContract
+import io.legado.app.ui.login.SourceLoginJsExtensions
+import io.legado.app.ui.main.bookCoverSharedElementKey
+import io.legado.app.ui.main.bookInfoCoverSharedElementKey
+import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.widget.components.filePicker.FilePickerSheet
+import io.legado.app.utils.RealPathUtil
 import io.legado.app.utils.StartActivityContract
+import io.legado.app.utils.externalFiles
+import io.legado.app.utils.isContentScheme
 import io.legado.app.utils.openFileUri
 import io.legado.app.utils.sendToClip
+import io.legado.app.utils.takePersistablePermissionSafely
 import io.legado.app.utils.toastOnUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import splitties.init.appCtx
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -42,8 +63,8 @@ fun BookInfoRouteScreen(
     origin: String? = null,
     coverPath: String? = null,
     viewModel: BookInfoViewModel,
-    onBack: () -> Unit,
-    onFinish: (resultCode: Int?, afterTransition: Boolean) -> Unit,
+    onBack: () -> Boolean = { true },
+    onFinish: (resultCode: Int?, afterTransition: Boolean) -> Boolean = { _, _ -> true },
     onOpenSearch: (String) -> Unit,
     onOpenBookSourceEdit: (String) -> Unit,
     onOpenSourceLogin: (String) -> Unit,
@@ -57,24 +78,70 @@ fun BookInfoRouteScreen(
     onOpenCharacterList: (bookUrl: String) -> Unit = {},
     onOpenKnowledgeList: (bookUrl: String) -> Unit = {},
     onOpenEventList: (bookUrl: String) -> Unit = {},
+    /** 私密功能需要本地密码，未设置时引导去设置页（与书架同一条路径） */
+    onOpenSettings: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedCoverKey: String? = null,
+    isTopRoute: Boolean = true,
 ) {
     val context = LocalContext.current
     val activity = context as AppCompatActivity
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val showMangaUi by rememberUpdatedState(uiState.showMangaUi)
+    // 资源串在 composable 作用域内解析，避免 LocalContext.current.getString 拿到过期值
+    val unlockTitle = stringResource(R.string.private_unlock_title)
+    val unlockSubtitle = stringResource(R.string.private_unlock_subtitle)
+    val unlockUsePassword = stringResource(R.string.private_unlock_use_password)
+    val noPasswordHint = stringResource(R.string.private_content_no_password)
+    var showSelectBooksDirSheet by remember { mutableStateOf(false) }
+
+    val canMorphBack = isTopRoute &&
+            uiState.dialog == null &&
+            uiState.sheet == BookInfoSheet.None &&
+            !showSelectBooksDirSheet &&
+            !uiState.showAppLogSheet &&
+            !uiState.showPrivatePasswordDialog
+    val effectiveCoverKey = sharedCoverKey ?: bookCoverSharedElementKey(bookUrl)
+    var isDismissed by remember { mutableStateOf(false) }
+    var finishResultCode by remember { mutableStateOf<Int?>(null) }
+    var finishAfterTransition by remember { mutableStateOf(false) }
+    var collapseRequested by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val dismissBookInfo: () -> Boolean = {
+        if (isDismissed) {
+            true
+        } else {
+            onFinish(finishResultCode, finishAfterTransition).also { popped ->
+                if (popped) isDismissed = true
+            }
+        }
+    }
+
+    val handleBack: () -> Unit = {
+        val collapse = collapseRequested
+        if (collapse != null && canMorphBack) {
+            collapse()
+        } else {
+            dismissBookInfo()
+        }
+    }
 
     val tocActivityResult = rememberLauncherForActivityResult(TocActivityResult()) {
         viewModel.onTocResult(it)
     }
-    val localBookTreeSelect = rememberLauncherForActivityResult(HandleFileContract()) {
-        it.uri?.let { treeUri ->
-            viewModel.onIntent(BookInfoIntent.SetDefaultBookTreeUri(treeUri.toString()))
+    val localBookTreeSelect =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            if (RealPathUtil.getTreePath(uri)?.startsWith(appCtx.externalFiles.parent!!) == true) {
+                return@rememberLauncherForActivityResult
+            }
+            if (uri.isContentScheme()) {
+                uri.takePersistablePermissionSafely(activity)
+            }
+            viewModel.onIntent(BookInfoIntent.SetDefaultBookTreeUri(uri.toString()))
         }
-    }
     val infoEditResult = rememberLauncherForActivityResult(
         StartActivityContract(BookInfoEditActivity::class.java)
     ) {
@@ -111,7 +178,14 @@ fun BookInfoRouteScreen(
             when (effect) {
                 is BookInfoEffect.ShowMessage -> context.toastOnUi(effect.message)
                 is BookInfoEffect.Finish -> {
-                    onFinish(effect.resultCode, effect.afterTransition)
+                    finishResultCode = effect.resultCode
+                    finishAfterTransition = effect.afterTransition
+                    val collapse = collapseRequested
+                    if (collapse != null && canMorphBack) {
+                        collapse()
+                    } else {
+                        dismissBookInfo()
+                    }
                 }
 
                 is BookInfoEffect.OpenBookInfoEdit -> {
@@ -153,13 +227,15 @@ fun BookInfoRouteScreen(
                     onOpenSourceLogin(effect.sourceUrl)
                 }
 
-                BookInfoEffect.OpenSelectBooksDir -> localBookTreeSelect.launch {
-                    title = activity.getString(R.string.select_book_folder)
-                }
+                BookInfoEffect.OpenSelectBooksDir -> showSelectBooksDirSheet = true
 
                 is BookInfoEffect.OpenFile -> activity.openFileUri(effect.uri, effect.mimeType)
                 is BookInfoEffect.RunSourceCallback -> {
                     runSourceCallback(activity, effect, viewModel, onOpenSearch)
+                }
+
+                is BookInfoEffect.RunIntroJs -> {
+                    runIntroJs(activity, effect)
                 }
 
 
@@ -190,20 +266,63 @@ fun BookInfoRouteScreen(
                 is BookInfoEffect.OpenEventList -> {
                     onOpenEventList(effect.bookUrl)
                 }
+
+                BookInfoEffect.RequestBiometricUnlock -> {
+                    BiometricUnlockLauncher.launch(
+                        activity = activity,
+                        title = unlockTitle,
+                        subtitle = unlockSubtitle,
+                        negativeButtonText = unlockUsePassword,
+                        onPassword = { password ->
+                            viewModel.onIntent(BookInfoIntent.SubmitPrivatePassword(password))
+                        },
+                        onFallback = {
+                            viewModel.onIntent(BookInfoIntent.ShowPrivatePassword)
+                        },
+                        onError = { message -> context.toastOnUi(message) },
+                    )
+                }
+
+                BookInfoEffect.NavigateToLocalPasswordSettings -> {
+                    // 只弹提示用户进不去设置页，这里与书架保持一致：说明原因后直接跳过去
+                    context.toastOnUi(noPasswordHint)
+                    onOpenSettings()
+                }
             }
         }
     }
 
-    BookInfoScreen(
-        state = uiState,
-        groups = viewModel.allGroups
-            .collectAsStateWithLifecycle(persistentListOf<BookGroup>()).value,
-        onIntent = viewModel::onIntent,
-        onBack = onBack,
-        sharedTransitionScope = sharedTransitionScope,
-        animatedVisibilityScope = animatedVisibilityScope,
-        sharedCoverKey = sharedCoverKey,
-    )
+    BookMorphHost(
+        anchorKey = effectiveCoverKey,
+        backgroundColor = LegadoTheme.colorScheme.background,
+        backEnabled = canMorphBack,
+        predictiveBackEnabled = true,
+        hasTargetCover = true,
+        onDismiss = dismissBookInfo,
+    ) { onCollapse ->
+        LaunchedEffect(onCollapse) {
+            collapseRequested = onCollapse
+        }
+        FilePickerSheet(
+            show = showSelectBooksDirSheet,
+            onDismissRequest = { showSelectBooksDirSheet = false },
+            title = stringResource(R.string.select_book_folder),
+            onSelectSysDir = {
+                showSelectBooksDirSheet = false
+                localBookTreeSelect.launch(null)
+            },
+        )
+        BookInfoScreen(
+            state = uiState,
+            groups = viewModel.allGroups
+                .collectAsStateWithLifecycle(persistentListOf<BookGroup>()).value,
+            onIntent = viewModel::onIntent,
+            onBack = handleBack,
+            sharedTransitionScope = null,
+            animatedVisibilityScope = null,
+            sharedCoverKey = remember(bookUrl) { bookInfoCoverSharedElementKey(bookUrl) },
+        )
+    }
 }
 
 private fun runSourceCallback(
@@ -218,6 +337,7 @@ private fun runSourceCallback(
         effect.source,
         effect.book,
         null,
+        result = effect.action.resultText,
     ) {
         when (val action = effect.action) {
             is BookInfoCallbackAction.Search -> {
@@ -241,6 +361,38 @@ private fun runSourceCallback(
             }
 
             BookInfoCallbackAction.None -> Unit
+        }
+    }
+}
+
+/**
+ * 书源 callBackJs 使用的 result 变量，取值与旧版 BookInfoActivity 各点击入口一致：
+ * 作者/书名/标签点击传关键字，分享与复制传对应文本，其余为空。
+ */
+private val BookInfoCallbackAction.resultText: String?
+    get() = when (this) {
+        is BookInfoCallbackAction.Search -> keyword
+        is BookInfoCallbackAction.ShareText -> text
+        is BookInfoCallbackAction.CopyText -> text
+        BookInfoCallbackAction.ClearCache -> null
+        BookInfoCallbackAction.None -> null
+    }
+
+private fun runIntroJs(activity: AppCompatActivity, effect: BookInfoEffect.RunIntroJs) {
+    val source = effect.source ?: return
+    activity.lifecycleScope.launch(IO) {
+        try {
+            val java = SourceLoginJsExtensions(activity, source)
+            runScriptWithContext {
+                source.evalJS(effect.click) {
+                    put("result", null)
+                    put("java", java)
+                    put("book", effect.book)
+                }
+            }
+        } catch (e: Throwable) {
+            AppLog.put("${source.bookSourceName}: ${e.localizedMessage}", e)
+            activity.toastOnUi("${effect.name} click error\n${e.localizedMessage}")
         }
     }
 }
